@@ -1,0 +1,1 @@
+"""Prompt adaptation helper placeholder."""

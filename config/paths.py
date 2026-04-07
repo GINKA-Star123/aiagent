@@ -1,0 +1,1 @@
+"""Project path definitions placeholder."""

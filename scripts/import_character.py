@@ -1,0 +1,1 @@
+"""Character import script placeholder."""

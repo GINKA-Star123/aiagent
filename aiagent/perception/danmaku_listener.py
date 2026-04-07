@@ -1,0 +1,1 @@
+"""Danmaku input adapter."""

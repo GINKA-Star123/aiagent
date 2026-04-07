@@ -1,0 +1,1 @@
+"""OBS service facade."""

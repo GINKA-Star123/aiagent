@@ -1,0 +1,1 @@
+"""Voice activity detection placeholder."""

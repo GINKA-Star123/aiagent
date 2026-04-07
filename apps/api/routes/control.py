@@ -1,0 +1,1 @@
+"""Control route placeholder."""

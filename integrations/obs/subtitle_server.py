@@ -1,0 +1,1 @@
+"""OBS subtitle bridge placeholder."""

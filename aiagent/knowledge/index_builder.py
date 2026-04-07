@@ -1,0 +1,1 @@
+"""Knowledge index builder placeholder."""

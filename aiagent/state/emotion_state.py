@@ -1,0 +1,1 @@
+"""Current emotion state."""

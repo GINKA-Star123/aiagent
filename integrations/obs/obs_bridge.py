@@ -1,0 +1,1 @@
+"""OBS control bridge placeholder."""
