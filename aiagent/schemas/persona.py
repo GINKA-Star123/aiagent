@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel
 
-class PeersonaConfig(BaseModel):
+class PersonaConfig(BaseModel):
     name :str
     description :str
     style : str
