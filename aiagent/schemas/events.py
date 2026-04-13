@@ -12,7 +12,7 @@ class SystemEventType(StrEnum):
     RESPONSE_READY = "response_ready"
     ERROR  = "error"
 
-class SystemEvents(BaseModel):
+class SystemEvent(BaseModel):
     event_id : str = Field(default_factory=lambda: str(uuid4()))
     event_type : SystemEventType
     payload : dict

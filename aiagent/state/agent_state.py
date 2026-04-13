@@ -4,7 +4,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-class AgenStatus(StrEnum):
+class AgentStatus(StrEnum):
     """Agent status."""
     IDLE = "idle"
     THINKING = "thinking"
@@ -13,7 +13,7 @@ class AgenStatus(StrEnum):
 
 class AgentRuntimeState(BaseModel):
     """Agent runtime state."""
-    status: AgenStatus = AgenStatus.IDLE
+    status: AgentStatus = AgentStatus.IDLE
     current_session_id: str = "default"
     last_input_id : str|None = None
     last_output_id : str|None = None

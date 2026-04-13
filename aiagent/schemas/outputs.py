@@ -17,9 +17,10 @@ class ResponsePacket(BaseModel):
     reply_text : str
     base_reply_text : str | None = None
     emotion : EmotionLabel = EmotionLabel.NEUTRAL
-    should_speak : bool = False
+    should_speak : bool = True
     should_store_memory : bool = False
     motion : str | None = None
+    audio_path : str | None = None
     metadata: dict[str,str] = Field(default_factory=dict)
 
 
