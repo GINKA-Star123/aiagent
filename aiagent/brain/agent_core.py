@@ -24,7 +24,7 @@ class BrainGraphState(TypedDict,total=False):
     response_packet: ResponsePacket
 
 class AgentCore:
-    def __init(
+    def __init__(
             self,
             llm_service: LLMService,
             context_builder: ContextBuilder,
@@ -41,28 +41,62 @@ class AgentCore:
         self.agent_state = agent_state
         self.emotion_state = emotion_state
         self.conversation_state = conversation_state
-        self.graph = self._bulid_graph()
+        self.graph = self._build_graph()
 
-    def _bulid_graph(self):
+    def _build_graph(self):
         graph = StateGraph(BrainGraphState)
 
         graph.add_node("build_context",self._build_context_node)
         graph.add_node("call_llm",self._call_llm_node)
         graph.add_node("plan_response",self._plan_response_node)
 
-        graph.add_edge(START,"bulid_context")
-        graph.add_edge("bulid_context","call_llm")
+        graph.add_edge(START,"build_context")
+        graph.add_edge("build_context","call_llm")
         graph.add_edge("call_llm","plan_response")
         graph.add_edge("plan_response",END)
 
         return graph.compile()
     
     def _build_context_node(self,state:BrainGraphState) ->BrainGraphState:
-        pass
+        event = state["input_event"] # type: ignore
+        persona = state["persona"] # type: ignore
+
+        system_prompt = self.context_builder.build_system_prompt(
+            persona=persona,
+            conversation_state = self.conversation_state,
+            event = event,
+        )
+        return {"system_prompt": system_prompt}
 
     def _call_llm_node(self,state:BrainGraphState) ->BrainGraphState:
-        pass
+        event = state["input_event"] # type: ignore
+        prompt = state["system_prompt"] # type: ignore
+
+        raw_reply =self.llm_service.generate_reply(
+            system_prompt=prompt,
+            user_text = event.text,
+        )
+        safe_reply = self.safety_guard.filter_text(raw_reply)
+        return {
+            "raw_reply": raw_reply,
+            "safe_reply": safe_reply,
+        }
 
     def _plan_response_node(self,state:BrainGraphState) ->BrainGraphState:
-        pass
-    
+        packet = self.response_planner.plan(state["safe_reply"]) # type: ignore
+        return {"response_packet": packet} 
+    def process(self, event:InputEvent, persona:PersonaConfig) -> ResponsePacket:
+        self.agent_state.status = AgenStatus.THINKING
+        self.agent_state.last_input_id = event.event_id
+
+        result = self.graph.invoke(
+            {
+                "input_event": event,
+                "persona": persona,
+            }
+        )
+
+        packet = result["response_packet"] # type: ignore
+        self.emotion_state.current_emotion = packet.emotion
+        self.agent_state.status = AgenStatus.IDLE
+        return packet

@@ -3,16 +3,17 @@
 from aiagent.schemas.outputs import EmotionLabel,ResponsePacket
 
 class ResponsePlanner:
-    def plan(self,reply_text :str) -> ResponsePacket :
-        emotion = self._infer_emotion(reply_text)
+    def plan(self,base_reply_text :str,final_reply_text:str) -> ResponsePacket :
+        emotion = self._infer_emotion(final_reply_text)
 
         return ResponsePacket(
-            reply_text=reply_text,
+            reply_text=final_reply_text,
+            base_reply_text=base_reply_text,
             emotion=emotion,
             should_speak=False,
             should_store_memory=False,
             motion=None,
-            metadata={"planner":"langgraphweek1"}
+            metadata={"planner":"week2-persona-style"}
         )
     
     def _infer_emotion(self,text:str)->EmotionLabel:

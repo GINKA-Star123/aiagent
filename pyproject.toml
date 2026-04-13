@@ -7,3 +7,11 @@ requires-python = ">=3.11"
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aiagent*", "apps*", "config*", "domain*", "integrations*"]
+exclude = ["data*", "tests*", "docs*", "scripts*"]

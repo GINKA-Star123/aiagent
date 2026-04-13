@@ -15,6 +15,7 @@ class EmotionLabel(StrEnum):
 
 class ResponsePacket(BaseModel):
     reply_text : str
+    base_reply_text : str | None = None
     emotion : EmotionLabel = EmotionLabel.NEUTRAL
     should_speak : bool = False
     should_store_memory : bool = False

@@ -1,13 +1,13 @@
 """LLM service facade."""
 
 from config.providers import LLMProvider
-from config.settings import settings
+from config.settings import Settings
 from integrations.llm.openai_client import OpenAIClient
 from integrations.llm.siliconflow_client import SiliconFlowClient
 from integrations.llm.prompt_adapter import build_messages
 
 class LLMService:
-    def __init__(self):
+    def __init__(self,settings: Settings) -> None:
         self.settings = settings
         self.openai_client = OpenAIClient(
             api_key = self.settings.openai_api_key,
@@ -19,8 +19,8 @@ class LLMService:
             base_url = self.settings.siliconflow_base_url
         )
 
-    def generate_reply(self,systemprompt:str,user_text:str):
-        messages = build_messages(systemprompt,user_text)
+    def generate_reply(self,system_prompt:str,user_text:str):
+        messages = build_messages(system_prompt,user_text)
 
         if self.settings.enable_mock_llm or self.settings.llm_provider == LLMProvider.MOCK:
             return self._mock_reply(user_text)
@@ -30,5 +30,22 @@ class LLMService:
             return self.siliconflow_client.generate(messages)
         raise ValueError(f"Unsupported llm provider: {self.settings.llm_provider}")
     
+    def generate_style_reply(self, system_prompt: str, base_text: str, persona_name: str) -> str:
+        messages = build_messages(system_prompt, base_text)
+
+        if self.settings.enable_mock_llm or self.settings.llm_provider == LLMProvider.MOCK:
+            return self._mock_style_reply(base_text, persona_name)
+
+        if self.settings.llm_provider == LLMProvider.OPENAI:
+            return self.openai_client.generate(messages)
+
+        if self.settings.llm_provider == LLMProvider.SILICONFLOW:
+            return self.siliconflow_client.generate(messages)
+
+        raise ValueError(f"Unsupported llm provider: {self.settings.llm_provider}")
+    
     def _mock_reply(self,user_text :str) ->str:
         return f"阿绫收到你的消息{user_text}啦"
+    
+    def _mock_style_reply(self, base_text: str, persona_name: str) -> str:
+        return f"{base_text} 我是{persona_name}，这边先轻松接住这句。"
