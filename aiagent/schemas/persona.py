@@ -16,7 +16,7 @@ class PersonaConfig(BaseModel):
             f"角色描述：{self.description}\n"
             f"说话风格：{self.style}\n"
             f"规则：{self.rules}\n"
-            "请用自然、简短、适合直播互动的方式回复。"
+            "请用自然、简短、符合角色性格的方式回复。"
         )
     
 
@@ -27,6 +27,6 @@ class PersonaConfig(BaseModel):
             f"说话风格：{self.style}\n"
             f"规则：{self.rules}\n"
             f"额外要求：{self.rewrite_hint}\n"
-            "请把输入内容改写成更像直播中虚拟主播说的话。\n"
+            "请把输入内容改写成更像角色说的话。\n"
             "要求：简短、自然、有角色感，不要解释，不要分析。"
         )

@@ -7,3 +7,4 @@ langchain-core
 langgraph
 httpx
 pyyaml
+pytest

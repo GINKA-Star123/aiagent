@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from config.defaults import (
@@ -29,9 +30,15 @@ class Settings(BaseSettings):
     llm_model: str = LLM_MODEL
     enable_mock_llm: bool = ENABLE_MOCK_LLM
 
-    openai_api_key: str | None = None
-    siliconflow_api_key: str | None = None
-    siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
+    llm_timeout_seconds: float = 20.0
+    llm_temperature: float = 0.7
+    llm_max_tokens: int = 200
+
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
+
+    siliconflow_api_key: str | None = Field(default=None, alias="SILICONFLOW_API")
+    siliconflow_base_url: str = Field(default="https://api.siliconflow.cn/v1", alias="SILICONFLOW_BASE_URL")
 
     persona_name: str = DEFAULT_PERSONA_NAME
     persona_description: str = DEFAULT_PERSONA_DESCRIPTION

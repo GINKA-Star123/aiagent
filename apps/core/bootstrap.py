@@ -1,14 +1,19 @@
-import logging
-
 from aiagent.brain.agent_core import AgentCore
 from aiagent.brain.context_builder import ContextBuilder
 from aiagent.brain.response_planner import ResponsePlanner
 from aiagent.brain.safety_guard import SafetyGuard
+from aiagent.common.logger import setup_logger
+from aiagent.expression.live2d_dispatcher import Live2DDispatcher
+from aiagent.expression.motion_policy import MotionPolicy
 from aiagent.expression.output_broadcaster import OutputBroadcaster
+from aiagent.expression.subtitle_dispatcher import SubtitleDispatcher
 from aiagent.expression.tts_dispatcher import TTSDispatcher
+from aiagent.knowledge.document_loader import KnowledgeDocumentLoader
+from aiagent.knowledge.rag_pipeline import RAGPipeline
+from aiagent.knowledge.retriever import SimpleKeyWordRetriever
 from aiagent.memory.memory_store import MemoryStore
-from aiagent.memory.user_profile_memory import UserProfileMemory
 from aiagent.memory.short_term_memory import ShortTermMemory
+from aiagent.memory.user_profile_memory import UserProfileMemory
 from aiagent.orchestrator.dispatcher import EventDispatcher
 from aiagent.orchestrator.event_bus import EventBus
 from aiagent.orchestrator.scheduler import Scheduler
@@ -24,12 +29,15 @@ from aiagent.state.emotion_state import EmotionState
 from aiagent.state.speaking_state import SpeakingState
 from apps.core.runtime import CoreRuntime
 from config.settings import settings
-from integrations.tts.mock_tts_client import MockTTSClient
 from integrations.asr.mock_asr_client import MockASRClient
+from integrations.bilibili.mock_bilibili_bridge import MockBilibiliBridge
+from integrations.live2d.mock_live2d_client import MockLive2DClient
+from integrations.obs.mock_obs_bridge import MockOBSBridge
+from integrations.tts.mock_tts_client import MockTTSClient
 
 
 def build_runtime() -> CoreRuntime:
-    logging.basicConfig(level=settings.log_level)
+    setup_logger(settings.log_level)
 
     agent_state = AgentRuntimeState()
     conversation_state = ConversationState()
@@ -40,10 +48,16 @@ def build_runtime() -> CoreRuntime:
     user_profile_memory = UserProfileMemory()
     memory_store = MemoryStore()
 
+    rag_pipeline = RAGPipeline(
+        loader=KnowledgeDocumentLoader(),
+        retriever=SimpleKeyWordRetriever(),
+    )
+
     llm_service = LLMService(settings=settings)
     context_builder = ContextBuilder(
         short_term_memory=short_term_memory,
-        user_profile_memory=user_profile_memory
+        user_profile_memory=user_profile_memory,
+        rag_pipeline=rag_pipeline,
     )
     response_planner = ResponsePlanner()
     safety_guard = SafetyGuard()
@@ -66,8 +80,25 @@ def build_runtime() -> CoreRuntime:
     tts_client = MockTTSClient()
     tts_dispatcher = TTSDispatcher(
         tts_client=tts_client,
-        speaking_state=speaking_state)
-    output_broadcaster = OutputBroadcaster(tts_dispatcher=tts_dispatcher)
+        speaking_state=speaking_state,
+    )
+
+    obs_bridge = MockOBSBridge()
+    subtitle_dispatcher = SubtitleDispatcher(obs_bridge=obs_bridge)
+
+    live2d_client = MockLive2DClient()
+    live2d_dispatcher = Live2DDispatcher(client=live2d_client)
+
+    motion_policy = MotionPolicy()
+    bilibili_bridge = MockBilibiliBridge()
+
+    output_broadcaster = OutputBroadcaster(
+        tts_dispatcher=tts_dispatcher,
+        subtitle_dispatcher=subtitle_dispatcher,
+        live2d_dispatcher=live2d_dispatcher,
+        motion_policy=motion_policy,
+        bilibili_bridge=bilibili_bridge,
+    )
 
     asr_listener = ASRListener(asr_client=MockASRClient())
 
@@ -83,8 +114,8 @@ def build_runtime() -> CoreRuntime:
         persona_manager=persona_manager,
         output_broadcaster=output_broadcaster,
         memory_store=memory_store,
-        user_profile_memory=user_profile_memory,
         short_term_memory=short_term_memory,
+        user_profile_memory=user_profile_memory,
         agent_state=agent_state,
         conversation_state=conversation_state,
     )
@@ -92,5 +123,5 @@ def build_runtime() -> CoreRuntime:
     return CoreRuntime(
         dispatcher=dispatcher,
         speaking_state=speaking_state,
-        asr_listener=asr_listener
-        )
+        asr_listener=asr_listener,
+    )
