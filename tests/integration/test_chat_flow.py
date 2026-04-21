@@ -11,5 +11,4 @@ def test_chat_flow_runs() -> None:
 
     assert output.packet.reply_text
     assert output.packet.audio_path is not None
-    assert output.packet.subtitle_path is not None
     assert output.packet.live2d_command_path is not None

@@ -19,6 +19,7 @@ class BrainGraphState(TypedDict, total=False):
     input_event: InputEvent
     persona: PersonaConfig
     system_prompt: str
+    user_input_text: str
     raw_reply: str
     safe_reply: str
     styled_reply: str
@@ -64,24 +65,37 @@ class AgentCore:
         return graph.compile()
 
     def _build_context_node(self, state: BrainGraphState) -> BrainGraphState:
-        event = state["input_event"] # type: ignore
-        persona = state["persona"] # type: ignore
+        event = state["input_event"]
+        persona = state["persona"]
 
         system_prompt = self.context_builder.build_system_prompt(
             persona=persona,
             conversation_state=self.conversation_state,
             event=event,
         )
-        return {"system_prompt": system_prompt}
+        user_input_text = self.context_builder.build_user_input_text(
+            event=event,
+            conversation_state=self.conversation_state,
+        )
+
+        return {
+            "system_prompt": system_prompt,
+            "user_input_text": user_input_text,
+        }
 
     def _call_llm_node(self, state: BrainGraphState) -> BrainGraphState:
-        event = state["input_event"] # type: ignore
-        prompt = state["system_prompt"] # type: ignore
+        event = state["input_event"]
+        prompt = state["system_prompt"]
+        user_input_text = state.get("user_input_text") or event.text
 
-        raw_reply = self.llm_service.generate_reply(
+        raw_reply = self.llm_service.invoke_with_memory(
+            thread_id=event.user_id,
             system_prompt=prompt,
-            user_text=event.text,
+            user_text=user_input_text,
+            fallback_text=user_input_text,
+            mode="chat",
         )
+
         safe_reply = self.safety_guard.filter_text(raw_reply)
         return {
             "raw_reply": raw_reply,
@@ -89,8 +103,8 @@ class AgentCore:
         }
 
     def _rewrite_style_node(self, state: BrainGraphState) -> BrainGraphState:
-        persona = state["persona"] # type: ignore
-        safe_reply = state["safe_reply"] # type: ignore
+        persona = state["persona"]
+        safe_reply = state["safe_reply"]
 
         styled_reply = self.style_rewriter.rewrite(
             base_reply=safe_reply,
@@ -102,8 +116,10 @@ class AgentCore:
 
     def _plan_response_node(self, state: BrainGraphState) -> BrainGraphState:
         packet = self.response_planner.plan(
-            final_reply_text=state["styled_reply"], # type: ignore
-            base_reply_text=state["safe_reply"], # type: ignore
+            final_reply_text=state["styled_reply"],
+            base_reply_text=state["safe_reply"],
+            input_event=state["input_event"],
+            conversation_state=self.conversation_state,
         )
         return {"response_packet": packet}
 

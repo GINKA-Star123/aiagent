@@ -9,12 +9,13 @@ def main() -> None:
     print(
         {
             "llm_provider": settings.llm_provider,
-            "enable_mock_llm": settings.enable_mock_llm,
-            "llm_model": settings.llm_model,
+            "tts_provider": settings.tts_provider,
+            "asr_provider": settings.asr_provider,
+            "rag_embedding_model_name": settings.rag_embedding_model_name,
         }
     )
 
-    print("=== REAL LLM TEST 1 ===")
+    print("=== ROUND 1 ===")
     output1 = runtime.handle_chat_full(
         text="如果观众说明天考试很紧张，我应该怎么安慰他？",
         user_id="u001",
@@ -22,16 +23,24 @@ def main() -> None:
     )
     print(output1.model_dump())
 
-    print("=== REAL LLM TEST 2 ===")
+    print("=== ROUND 2 ===")
     output2 = runtime.handle_chat_full(
-        text="观众说自己喜欢音乐，我可以怎么接话？",
-        user_id="u002",
-        username="小雨",
+        text="那如果他说自己晚上一直睡不着呢？",
+        user_id="u001",
+        username="阿明",
     )
     print(output2.model_dump())
 
-    print("=== SPEAKING STATE ===")
-    print(runtime.get_speaking_state().model_dump())
+    print("=== ROUND 3 ===")
+    output3 = runtime.handle_chat_full(
+        text="说起来我最近也在听轻一点的歌，这样会不会放松一些？",
+        user_id="u001",
+        username="阿明",
+    )
+    print(output3.model_dump())
+
+    print("=== CONVERSATION SNAPSHOT ===")
+    print(runtime.conversation_state.snapshot())
 
 
 if __name__ == "__main__":

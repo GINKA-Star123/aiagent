@@ -8,3 +8,11 @@ dist/
 build/
 data/cache/
 data/logs/
+
+# Large model files
+data/models/
+*.bin
+*.safetensors
+*.pt
+*.pth
+

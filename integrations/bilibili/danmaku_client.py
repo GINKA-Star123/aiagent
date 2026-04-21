@@ -1,1 +1,0 @@
-"""Bilibili danmaku client placeholder."""

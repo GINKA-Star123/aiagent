@@ -1,14 +1,14 @@
-"""Chat route placeholder."""
-
 import json
+import logging
+import traceback
 
 from fastapi import APIRouter, Response
 from pydantic import BaseModel
 
-from apps.core.bootstrap import build_runtime
+from apps.core.runtime_registry import get_runtime, get_runtime_error
 
 router = APIRouter()
-runtime = build_runtime()
+logger = logging.getLogger("aiagent.api.chat")
 
 
 class ChatRequest(BaseModel):
@@ -19,30 +19,67 @@ class ChatRequest(BaseModel):
 
 @router.post("/chat")
 def chat(req: ChatRequest):
-    output = runtime.handle_chat_full(
-        text=req.text,
-        user_id=req.user_id,
-        username=req.username,
-    )
+    try:
+        runtime = get_runtime()
+    except Exception as exc:
+        logger.exception("Runtime init failed in /chat: %s", exc)
+        body = json.dumps(
+            {
+                "ok": False,
+                "stage": "runtime_init",
+                "error": str(exc),
+                "runtime_error": get_runtime_error(),
+                "traceback": traceback.format_exc(),
+            },
+            ensure_ascii=False,
+        )
+        return Response(
+            content=body,
+            media_type="application/json; charset=utf-8",
+            status_code=500,
+        )
 
-    body = json.dumps(
-        {
-            "reply": output.packet.reply_text,
-            "base_reply_text": output.packet.base_reply_text,
-            "emotion": output.packet.emotion,
-            "motion": output.packet.motion,
-            "expression": output.packet.expression,
-            "audio_path": output.packet.audio_path,
-            "subtitle_path": output.packet.subtitle_path,
-            "live2d_command_path": output.packet.live2d_command_path,
-            "obs_payload_path": output.packet.obs_payload_path,
-            "bilibili_payload_path": output.packet.bilibili_payload_path,
-            "metadata": output.packet.metadata,
-        },
-        ensure_ascii=False,
-    )
+    try:
+        output = runtime.handle_chat_full(
+            text=req.text,
+            user_id=req.user_id,
+            username=req.username,
+        )
 
-    return Response(
-        content=body,
-        media_type="application/json; charset=utf-8",
-    )
+        body = json.dumps(
+            {
+                "ok": True,
+                "reply": output.packet.reply_text,
+                "base_reply_text": output.packet.base_reply_text,
+                "emotion": output.packet.emotion,
+                "motion": output.packet.motion,
+                "expression": output.packet.expression,
+                "audio_path": output.packet.audio_path,
+                "live2d_command_path": output.packet.live2d_command_path,
+                "metadata": output.packet.metadata,
+            },
+            ensure_ascii=False,
+        )
+
+        return Response(
+            content=body,
+            media_type="application/json; charset=utf-8",
+            status_code=200,
+        )
+
+    except Exception as exc:
+        logger.exception("Chat route failed: %s", exc)
+        body = json.dumps(
+            {
+                "ok": False,
+                "stage": "chat_handler",
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            },
+            ensure_ascii=False,
+        )
+        return Response(
+            content=body,
+            media_type="application/json; charset=utf-8",
+            status_code=500,
+        )

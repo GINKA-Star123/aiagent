@@ -3,3 +3,4 @@ Name: aiagent
 Version: 0.1.0
 Summary: Unified AI VTuber runtime
 Requires-Python: >=3.11
+Requires-Dist: langchain-openai>=0.2.14

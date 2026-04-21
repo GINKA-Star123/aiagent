@@ -1,1 +1,0 @@
-"""WebSocket chat input adapter."""

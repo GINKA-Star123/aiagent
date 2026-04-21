@@ -1,24 +1,34 @@
 from aiagent.brain.agent_core import AgentCore
 from aiagent.brain.context_builder import ContextBuilder
+from aiagent.brain.dialogue_manager import DialogueManager
 from aiagent.brain.response_planner import ResponsePlanner
 from aiagent.brain.safety_guard import SafetyGuard
 from aiagent.common.logger import setup_logger
+from aiagent.expression.audio_playback_dispatcher import AudioPlaybackDispatcher
 from aiagent.expression.live2d_dispatcher import Live2DDispatcher
 from aiagent.expression.motion_policy import MotionPolicy
 from aiagent.expression.output_broadcaster import OutputBroadcaster
-from aiagent.expression.subtitle_dispatcher import SubtitleDispatcher
 from aiagent.expression.tts_dispatcher import TTSDispatcher
-from aiagent.knowledge.document_loader import KnowledgeDocumentLoader
+from aiagent.knowledge.document_loader import DocumentLoader
 from aiagent.knowledge.rag_pipeline import RAGPipeline
-from aiagent.knowledge.retriever import SimpleKeyWordRetriever
+from aiagent.knowledge.reranker import SimpleReranker
+from aiagent.knowledge.retriever import HybridRetriever
+from aiagent.knowledge.vector_store import LangChainVectorStore
+from aiagent.memory.long_term_memory import LongTermMemory
+from aiagent.memory.memory_selector import MemorySelector
 from aiagent.memory.memory_store import MemoryStore
-from aiagent.memory.short_term_memory import ShortTermMemory
+from aiagent.memory.memory_summarizer import MemorySummarizer
 from aiagent.memory.user_profile_memory import UserProfileMemory
 from aiagent.orchestrator.dispatcher import EventDispatcher
 from aiagent.orchestrator.event_bus import EventBus
+from aiagent.orchestrator.interrupt_manager import InterruptManager
 from aiagent.orchestrator.scheduler import Scheduler
 from aiagent.orchestrator.session_manager import SessionManager
 from aiagent.perception.asr_listener import ASRListener
+from aiagent.perception.input_normalizer import InputNormalizer
+from aiagent.perception.source_router import SourceRouter
+from aiagent.perception.voice_session_controller import VoiceSessionController
+from aiagent.perception.voice_turn_manager import VoiceTurnManager
 from aiagent.persona.persona_loader import PersonaLoader
 from aiagent.persona.persona_manager import PersonaManager
 from aiagent.persona.style_rewriter import StyleRewriter
@@ -27,12 +37,17 @@ from aiagent.state.agent_state import AgentRuntimeState
 from aiagent.state.conversation_state import ConversationState
 from aiagent.state.emotion_state import EmotionState
 from aiagent.state.speaking_state import SpeakingState
+from aiagent.state.stream_state import StreamingState
 from apps.core.runtime import CoreRuntime
 from config.settings import settings
+from integrations.asr.faster_whisper_client import FasterWhisperClient
+from integrations.asr.microphone import StreamingMicrophone
 from integrations.asr.mock_asr_client import MockASRClient
-from integrations.bilibili.mock_bilibili_bridge import MockBilibiliBridge
+from integrations.asr.vad import VoiceActivityDetector
+from integrations.audio.audio_player import AudioPlayer
+from integrations.audio.microphone_recorder import MicrophoneRecorder
 from integrations.live2d.mock_live2d_client import MockLive2DClient
-from integrations.obs.mock_obs_bridge import MockOBSBridge
+from integrations.tts.gpt_sovits_client import GPTSoVITSClient
 from integrations.tts.mock_tts_client import MockTTSClient
 
 
@@ -43,21 +58,40 @@ def build_runtime() -> CoreRuntime:
     conversation_state = ConversationState()
     emotion_state = EmotionState()
     speaking_state = SpeakingState()
+    streaming_state = StreamingState()
 
-    short_term_memory = ShortTermMemory()
     user_profile_memory = UserProfileMemory()
+    long_term_memory = LongTermMemory()
     memory_store = MemoryStore()
+    memory_selector = MemorySelector()
+    memory_summarizer = MemorySummarizer()
+
+    dialogue_manager = DialogueManager()
+    interrupt_manager = InterruptManager()
 
     rag_pipeline = RAGPipeline(
-        loader=KnowledgeDocumentLoader(),
-        retriever=SimpleKeyWordRetriever(),
+        loader=DocumentLoader(),
+        retriever=HybridRetriever(
+            bm25_top_k=settings.rag_bm25_top_k,
+            vector_top_k=settings.rag_vector_top_k,
+        ),
+        vector_store=LangChainVectorStore(
+            embedding_model_name=settings.rag_embedding_model_name,
+            embedding_model_path=settings.rag_embedding_model_path,
+        ),
+        reranker=SimpleReranker(),
+        chunk_size=settings.rag_chunk_size,
+        chunk_overlap=settings.rag_chunk_overlap,
+        final_top_k=settings.rag_final_top_k,
     )
+    rag_pipeline.build_index(force_rebuild=False)
 
     llm_service = LLMService(settings=settings)
     context_builder = ContextBuilder(
-        short_term_memory=short_term_memory,
+        llm_service=llm_service,
         user_profile_memory=user_profile_memory,
         rag_pipeline=rag_pipeline,
+        long_term_memory=long_term_memory,
     )
     response_planner = ResponsePlanner()
     safety_guard = SafetyGuard()
@@ -77,51 +111,119 @@ def build_runtime() -> CoreRuntime:
         emotion_state=emotion_state,
     )
 
-    tts_client = MockTTSClient()
+    mock_tts_client = MockTTSClient()
+    gpt_sovits_client = GPTSoVITSClient(
+        base_url=settings.gpt_sovits_base_url,
+        timeout_seconds=settings.tts_timeout_seconds,
+        ref_audio_path=settings.gpt_sovits_ref_audio_path,
+        prompt_text=settings.gpt_sovits_prompt_text,
+        prompt_lang=settings.gpt_sovits_prompt_lang,
+        text_lang=settings.gpt_sovits_text_lang,
+    )
+
     tts_dispatcher = TTSDispatcher(
-        tts_client=tts_client,
+        mock_tts_client=mock_tts_client,
+        speaking_state=speaking_state,
+        tts_provider=settings.tts_provider,
+        enable_mock_tts=settings.enable_mock_tts,
+        gpt_sovits_client=gpt_sovits_client,
+    )
+
+    audio_playback_dispatcher = AudioPlaybackDispatcher(
+        audio_player=AudioPlayer(),
         speaking_state=speaking_state,
     )
 
-    obs_bridge = MockOBSBridge()
-    subtitle_dispatcher = SubtitleDispatcher(obs_bridge=obs_bridge)
-
-    live2d_client = MockLive2DClient()
-    live2d_dispatcher = Live2DDispatcher(client=live2d_client)
-
+    live2d_dispatcher = Live2DDispatcher(client=MockLive2DClient())
     motion_policy = MotionPolicy()
-    bilibili_bridge = MockBilibiliBridge()
 
     output_broadcaster = OutputBroadcaster(
         tts_dispatcher=tts_dispatcher,
-        subtitle_dispatcher=subtitle_dispatcher,
         live2d_dispatcher=live2d_dispatcher,
         motion_policy=motion_policy,
-        bilibili_bridge=bilibili_bridge,
+        audio_playback_dispatcher=audio_playback_dispatcher,
     )
 
-    asr_listener = ASRListener(asr_client=MockASRClient())
+    if settings.enable_mock_asr or settings.asr_provider == "mock":
+        asr_client = MockASRClient()
+    else:
+        asr_client = FasterWhisperClient(
+            model_size=settings.asr_model_size,
+            model_path=settings.asr_model_path,
+            device=settings.asr_device,
+            compute_type=settings.asr_compute_type,
+            language=settings.asr_language,
+        )
 
-    event_bus = EventBus()
-    scheduler = Scheduler()
-    session_manager = SessionManager()
+    fixed_recorder = MicrophoneRecorder(
+        sample_rate=settings.asr_sample_rate,
+        channels=1,
+    )
+
+    asr_listener = ASRListener(
+        asr_client=asr_client,
+        recorder=fixed_recorder,
+        asr_provider=settings.asr_provider,
+        enable_mock_asr=settings.enable_mock_asr,
+    )
+
+    vad = VoiceActivityDetector(
+        energy_threshold=settings.voice_energy_threshold,
+    )
+    streaming_microphone = StreamingMicrophone(
+        sample_rate=settings.asr_sample_rate,
+        channels=1,
+        chunk_seconds=settings.voice_chunk_seconds,
+        vad=vad,
+    )
+
+    voice_session_controller = VoiceSessionController(
+        audio_playback_dispatcher=audio_playback_dispatcher,
+        speaking_state=speaking_state,
+        streaming_state=streaming_state,
+    )
+
+    voice_turn_manager = VoiceTurnManager(
+        asr_listener=asr_listener,
+        microphone=streaming_microphone,
+        stream_state=streaming_state,
+        session_controller=voice_session_controller,
+    )
+
+    input_normalizer = InputNormalizer()
+    source_router = SourceRouter(input_normalizer=input_normalizer)
 
     dispatcher = EventDispatcher(
-        event_bus=event_bus,
-        scheduler=scheduler,
-        session_manager=session_manager,
+        event_bus=EventBus(),
+        scheduler=Scheduler(),
+        session_manager=SessionManager(),
         agent_core=agent_core,
         persona_manager=persona_manager,
         output_broadcaster=output_broadcaster,
         memory_store=memory_store,
-        short_term_memory=short_term_memory,
+        memory_selector=memory_selector,
+        memory_summarizer=memory_summarizer,
+        long_term_memory=long_term_memory,
         user_profile_memory=user_profile_memory,
         agent_state=agent_state,
         conversation_state=conversation_state,
+        dialogue_manager=dialogue_manager,
+        interrupt_manager=interrupt_manager,
     )
 
     return CoreRuntime(
         dispatcher=dispatcher,
         speaking_state=speaking_state,
         asr_listener=asr_listener,
+        stream_state=streaming_state,
+        long_term_memory=long_term_memory,
+        user_profile_memory=user_profile_memory,
+        source_router=source_router,
+        llm_service=llm_service,
+        conversation_state=conversation_state,
+        dialogue_manager=dialogue_manager,
+        interrupt_manager=interrupt_manager,
+        rag_pipeline=rag_pipeline,
+        voice_turn_manager=voice_turn_manager,
+        voice_session_controller=voice_session_controller,
     )

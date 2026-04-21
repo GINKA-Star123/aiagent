@@ -5,3 +5,4 @@ class LLMProvider(StrEnum):
     MOCK = "mock"
     OPENAI = "openai"
     SILICONFLOW = "siliconflow"
+    LMSTUDIO = "lmstudio"

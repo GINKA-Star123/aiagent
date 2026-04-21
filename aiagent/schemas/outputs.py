@@ -24,12 +24,8 @@ class ResponsePacket(BaseModel):
     expression : str | None = None
 
     audio_path : str | None = None
-    subtitle_text : str | None = None
-    subtitle_path: str | None = None
 
     live2d_command_path : str | None = None
-    obs_payload_path: str | None = None
-    bilibili_payload_path: str | None = None
     
     metadata: dict[str,str] = Field(default_factory=dict)
 

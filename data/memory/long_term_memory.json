@@ -1,0 +1,284 @@
+[
+  {
+    "memory_id": "c38b6549-3f3e-44a7-964e-3d67b2105e72",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "记住，我下周要参加考试，我会有点紧张。",
+    "kind": "long_term",
+    "timestamp": "2026-04-16T20:47:40.575851",
+    "importance": 0.7,
+    "tags": [],
+    "summary": "",
+    "source_text": "",
+    "confidence": 0.7
+  },
+  {
+    "memory_id": "20a04c3d-ee6b-4022-84bc-c58a7d331229",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "记住，我下周要参加考试。",
+    "kind": "long_term",
+    "timestamp": "2026-04-16T20:49:27.588383",
+    "importance": 0.7,
+    "tags": [],
+    "summary": "",
+    "source_text": "",
+    "confidence": 0.7
+  },
+  {
+    "memory_id": "192528d8-a6b0-4253-8459-b678426931f0",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "记住，我下周要参加考试。",
+    "kind": "long_term",
+    "timestamp": "2026-04-16T20:50:47.846313",
+    "importance": 0.7,
+    "tags": [],
+    "summary": "",
+    "source_text": "",
+    "confidence": 0.7
+  },
+  {
+    "memory_id": "831a1b52-cc09-494d-aae2-6533052cbfe5",
+    "user_id": "user-2126c34c",
+    "username": "银花",
+    "content": "阿绫记住我是银花",
+    "kind": "long_term",
+    "timestamp": "2026-04-16T21:41:32.654722",
+    "importance": 0.7,
+    "tags": [],
+    "summary": "",
+    "source_text": "",
+    "confidence": 0.7
+  },
+  {
+    "memory_id": "ea4287b6-8afc-4baa-85a5-a1dc0c7608ec",
+    "user_id": "u001",
+    "username": "测试用户",
+    "content": "如果观众说明天考试很紧张，我应该怎么安慰他？",
+    "kind": "long_term",
+    "timestamp": "2026-04-17T11:27:57.709915",
+    "importance": 0.95,
+    "tags": [
+      "emotion",
+      "exam",
+      "天考试很紧张",
+      "如果观众说明",
+      "我应该怎么安"
+    ],
+    "summary": "如果观众说明天考试很紧张，我应该怎么安慰他？",
+    "source_text": "",
+    "confidence": 0.9
+  },
+  {
+    "memory_id": "a32c37dc-670b-4ec4-a3ff-b7e7fa39b180",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "如果观众说明天考试很紧张，我应该怎么安慰他？",
+    "kind": "long_term",
+    "timestamp": "2026-04-18T13:40:53.701201",
+    "importance": 0.7,
+    "tags": [],
+    "summary": "",
+    "source_text": "",
+    "confidence": 0.7
+  },
+  {
+    "memory_id": "2a2577e7-8d12-4c9b-a5f3-d4184e4df186",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "如果观众说明天考试很紧张，我应该怎么安慰他？",
+    "kind": "long_term",
+    "timestamp": "2026-04-18T13:56:06.170078",
+    "importance": 0.7,
+    "tags": [],
+    "summary": "",
+    "source_text": "",
+    "confidence": 0.7
+  },
+  {
+    "memory_id": "ec00da5e-67d1-4aa1-9a63-01cd6cb97bfc",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "如果观众说明天考试很紧张，我应该怎么安慰他？",
+    "kind": "long_term",
+    "timestamp": "2026-04-18T13:58:28.522479",
+    "importance": 0.7,
+    "tags": [],
+    "summary": "",
+    "source_text": "",
+    "confidence": 0.7
+  },
+  {
+    "memory_id": "7c740b77-fbeb-4993-bc0f-e2fe5d121df1",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "如果观众说自己考试很紧张，我应该怎么安慰他？",
+    "kind": "long_term",
+    "timestamp": "2026-04-18T16:21:00.309774",
+    "importance": 0.7,
+    "tags": [],
+    "summary": "",
+    "source_text": "",
+    "confidence": 0.7
+  },
+  {
+    "memory_id": "588f7f01-f344-48c5-a547-e17c900c2b3b",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "我叫阿明，我最近在准备五月的考试，有点紧张，请记住我喜欢听轻一点的歌。",
+    "kind": "long_term",
+    "timestamp": "2026-04-18T20:16:18.781541",
+    "importance": 0.9299999999999999,
+    "tags": [
+      "exam",
+      "emotion",
+      "我叫阿明",
+      "我最近在准备",
+      "五月的考试"
+    ],
+    "summary": "我叫阿明，我最近在准备五月的考试，有点紧张，请记住我喜欢听轻一点的歌。",
+    "source_text": "我叫阿明，我最近在准备五月的考试，有点紧张，请记住我喜欢听轻一点的歌。",
+    "confidence": 0.9
+  },
+  {
+    "memory_id": "160c9c51-7a62-459f-8b21-7035b3cb1f8b",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "我下周生日，不过这两天还在赶学校作业。",
+    "kind": "long_term",
+    "timestamp": "2026-04-18T20:16:56.471088",
+    "importance": 0.77,
+    "tags": [
+      "school",
+      "birthday",
+      "我下周生日",
+      "不过这两天还",
+      "在赶学校作业"
+    ],
+    "summary": "我下周生日，不过这两天还在赶学校作业。",
+    "source_text": "我下周生日，不过这两天还在赶学校作业。",
+    "confidence": 0.75
+  },
+  {
+    "memory_id": "50530967-7b6a-4b97-bd2c-9b380df76b03",
+    "user_id": "desktop_银花_505f1ed03223",
+    "username": "银花",
+    "content": "阿绫我是谁",
+    "kind": "long_term",
+    "timestamp": "2026-04-19T13:56:45.136080",
+    "importance": 0.75,
+    "tags": [
+      "阿绫我是谁"
+    ],
+    "summary": "阿绫我是谁",
+    "source_text": "阿绫我是谁",
+    "confidence": 0.75
+  },
+  {
+    "memory_id": "c7c547a3-b1e8-4b64-93f0-cad26644d0bd",
+    "user_id": "desktop_银花_505f1ed03223",
+    "username": "银花",
+    "content": "阿绫你要记住我是银花",
+    "kind": "long_term",
+    "timestamp": "2026-04-19T13:58:36.518011",
+    "importance": 0.83,
+    "tags": [
+      "阿绫你要记住",
+      "我是银花"
+    ],
+    "summary": "阿绫你要记住我是银花",
+    "source_text": "阿绫你要记住我是银花",
+    "confidence": 0.75
+  },
+  {
+    "memory_id": "4bbcd229-059b-42b1-98b8-85b33234a692",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "那如果他说自己晚上一直睡不着呢？",
+    "kind": "long_term",
+    "timestamp": "2026-04-19T21:20:01.168385",
+    "importance": 0.77,
+    "tags": [
+      "那如果他说自",
+      "己晚上一直睡",
+      "不着呢"
+    ],
+    "summary": "那如果他说自己晚上一直睡不着呢？",
+    "source_text": "那如果他说自己晚上一直睡不着呢？",
+    "confidence": 0.75
+  },
+  {
+    "memory_id": "2dc9d6fc-9ea8-4ad5-b1fc-81a1b477db15",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "说起来我最近也在听轻一点的歌，这样会不会放松一些？",
+    "kind": "long_term",
+    "timestamp": "2026-04-19T21:20:03.477320",
+    "importance": 0.73,
+    "tags": [
+      "说起来我最近",
+      "也在听轻一点",
+      "的歌"
+    ],
+    "summary": "说起来我最近也在听轻一点的歌，这样会不会放松一些？",
+    "source_text": "说起来我最近也在听轻一点的歌，这样会不会放松一些？",
+    "confidence": 0.75
+  },
+  {
+    "memory_id": "cccb6b3d-c01d-40eb-bc29-334eff23fea3",
+    "user_id": "u001",
+    "username": "阿明",
+    "content": "长期事件：\n- 如果观众说明天考试很紧张，我应该怎么安慰他？\n- 我叫阿明，我最近在准备五月的考试，有点紧张，请记住我喜欢听轻一点的歌。\n- 那如果他说自己晚上一直睡不着呢？\n- 我下周生日，不过这两天还在赶学校作业。\n- 说起来我最近也在听轻一点的歌，这样会不会放松一些？\n- 如果观众说自己考试很紧张，我应该怎么安慰他？",
+    "kind": "summary",
+    "timestamp": "2026-04-19T21:20:03.478321",
+    "importance": 0.95,
+    "tags": [],
+    "summary": "长期事件：\n- 如果观众说明天考试很紧张，我应该怎么安慰他？\n- 我叫阿明，我最近在准备五月的考试，有点紧张，请记住我喜欢听轻一点的歌。\n- 那如果他说自己晚上一直睡不着呢？\n- 我下周生日，不过这两天还在赶学校作业。\n- 说起来我最近也在听轻一点的歌，这样会不会放松一些？\n- 如果观众说自己考试很紧张，我应该怎么安慰他？",
+    "source_text": "长期事件：\n- 如果观众说明天考试很紧张，我应该怎么安慰他？\n- 我叫阿明，我最近在准备五月的考试，有点紧张，请记住我喜欢听轻一点的歌。\n- 那如果他说自己晚上一直睡不着呢？\n- 我下周生日，不过这两天还在赶学校作业。\n- 说起来我最近也在听轻一点的歌，这样会不会放松一些？\n- 如果观众说自己考试很紧张，我应该怎么安慰他？",
+    "confidence": 0.95
+  },
+  {
+    "memory_id": "677b5fee-2231-4cc4-ba3b-b0b2789c9b8a",
+    "user_id": "desktop_银花_505f1ed03223",
+    "username": "银花",
+    "content": "阿绫我是谁？",
+    "kind": "long_term",
+    "timestamp": "2026-04-19T21:22:08.294294",
+    "importance": 0.75,
+    "tags": [
+      "阿绫我是谁"
+    ],
+    "summary": "阿绫我是谁？",
+    "source_text": "阿绫我是谁？",
+    "confidence": 0.75
+  },
+  {
+    "memory_id": "13a38678-f96c-4b27-9683-6adaeab7faff",
+    "user_id": "desktop_银花_505f1ed03223",
+    "username": "银花",
+    "content": "阿绫我喜欢你",
+    "kind": "long_term",
+    "timestamp": "2026-04-19T22:14:57.806120",
+    "importance": 0.75,
+    "tags": [
+      "阿绫我喜欢你"
+    ],
+    "summary": "阿绫我喜欢你",
+    "source_text": "阿绫我喜欢你",
+    "confidence": 0.75
+  },
+  {
+    "memory_id": "174a8ed4-28f0-4408-ab30-7f50e3df6db7",
+    "user_id": "desktop_银花_505f1ed03223",
+    "username": "银花",
+    "content": "长期事件：\n- 阿绫你要记住我是银花\n- 阿绫我喜欢你\n- 阿绫我是谁？\n- 阿绫我是谁",
+    "kind": "summary",
+    "timestamp": "2026-04-19T22:14:57.816665",
+    "importance": 0.95,
+    "tags": [],
+    "summary": "长期事件：\n- 阿绫你要记住我是银花\n- 阿绫我喜欢你\n- 阿绫我是谁？\n- 阿绫我是谁",
+    "source_text": "长期事件：\n- 阿绫你要记住我是银花\n- 阿绫我喜欢你\n- 阿绫我是谁？\n- 阿绫我是谁",
+    "confidence": 0.95
+  }
+]
