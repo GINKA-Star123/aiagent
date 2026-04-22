@@ -1,1 +1,2 @@
 langchain-openai>=0.2.14
+pyyaml>=6.0.3

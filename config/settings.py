@@ -9,8 +9,14 @@ from config.defaults import (
     DEFAULT_PERSONA_RULES,
     DEFAULT_PERSONA_STYLE,
     ENABLE_MOCK_LLM,
+    ENABLE_MOCK_STATE,
+    ENABLE_MOCK_PLANNER,
     LLM_MODEL,
     LLM_PROVIDER,
+    STATE_PROVIDER,
+    STATE_MODEL,
+    PLANNER_MODEL,
+    PLANNER_PROVIDER,
     LOG_LEVEL,
 )
 
@@ -29,6 +35,14 @@ class Settings(BaseSettings):
     llm_provider: str = LLM_PROVIDER
     llm_model: str = LLM_MODEL
     enable_mock_llm: bool = ENABLE_MOCK_LLM
+
+    state_provider: str = STATE_PROVIDER
+    state_model: str = STATE_MODEL
+    enable_mock_state: bool = ENABLE_MOCK_STATE
+
+    planner_provider :str = PLANNER_PROVIDER
+    planner_model :str = PLANNER_MODEL
+    enable_mock_planner :bool =ENABLE_MOCK_PLANNER
 
     llm_timeout_seconds: float = 20.0
     llm_temperature: float = 0.7

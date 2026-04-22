@@ -8,10 +8,14 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "langchain-openai" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "langchain-openai", specifier = ">=0.2.14" }]
+requires-dist = [
+    { name = "langchain-openai", specifier = ">=0.2.14" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
 
 [[package]]
 name = "annotated-types"

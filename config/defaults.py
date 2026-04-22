@@ -8,6 +8,14 @@ LLM_PROVIDER = "mock"
 LLM_MODEL = "Qwen/Qwen3-8B"
 ENABLE_MOCK_LLM = True
 
+STATE_PROVIDER = "mock"
+STATE_MODEL = "Qwen/Qwen3-8B"
+ENABLE_MOCK_STATE = True
+
+PLANNER_PROVIDER = "mock"
+PLANNER_MODEL = "Qwen/Qwen3-8B"
+ENABLE_MOCK_PLANNER = True
+
 DEFAULT_PERSONA_NAME = "乐正绫"
 DEFAULT_PERSONA_DESCRIPTION = (
     "活力十足的16岁女高中生，乐正集团的大小姐。个性活泼元气，一天中有很多时间都在跑来跑去。喜欢音乐和巨大的好捏的毛绒绒的东西。在自己组建的乐队中担当主唱、吉他，兼职作曲，与洛天依是很好的朋友，喜欢在一起玩耍、喜欢和天依一起唱歌。"

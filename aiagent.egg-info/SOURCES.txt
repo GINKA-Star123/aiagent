@@ -34,8 +34,6 @@ aiagent/memory/long_term_memory.py
 aiagent/memory/memory_selector.py
 aiagent/memory/memory_store.py
 aiagent/memory/memory_summarizer.py
-aiagent/memory/short_memory.py
-aiagent/memory/short_term_memory.py
 aiagent/memory/user_profile_memory.py
 aiagent/orchestrator/__init__.py
 aiagent/orchestrator/dispatcher.py
@@ -63,10 +61,7 @@ aiagent/schemas/memory.py
 aiagent/schemas/outputs.py
 aiagent/schemas/persona.py
 aiagent/services/__init__.py
-aiagent/services/asr_service.py
-aiagent/services/live2d_service.py
 aiagent/services/llm_service.py
-aiagent/services/tts_service.py
 aiagent/state/__init__.py
 aiagent/state/agent_state.py
 aiagent/state/conversation_state.py
@@ -76,7 +71,6 @@ aiagent/state/stream_state.py
 apps/__init__.py
 apps/api/__init__.py
 apps/api/http_server.py
-apps/api/ws_server.py
 apps/api/routes/__init__.py
 apps/api/routes/chat.py
 apps/api/routes/control.py
