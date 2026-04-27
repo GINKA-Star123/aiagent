@@ -1,8 +1,8 @@
-"""Final LangChain-style RAG pipeline."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from langchain_core.documents import Document
 
@@ -37,10 +37,9 @@ class RAGPipeline:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.final_top_k = final_top_k
-
         self.documents: list[Document] = []
 
-    def build_index(self, force_rebuild: bool = False) -> dict:
+    def build_index(self, force_rebuild: bool = False) -> dict[str, Any]:
         if not force_rebuild and self.docs_index_path.exists() and self.faiss_dir.exists():
             self._load_documents()
             self.vector_store.load(self.faiss_dir)
@@ -59,10 +58,8 @@ class RAGPipeline:
 
         self.documents = split_docs
         self._save_documents(split_docs)
-
         self.vector_store.build(split_docs)
         self.vector_store.save(self.faiss_dir)
-
         self.retriever.build(split_docs)
         return self.stats()
 
@@ -80,78 +77,74 @@ class RAGPipeline:
 
     def retrieve(self, query: str, top_k: int | None = None) -> list[RetrievedChunk]:
         self.ensure_ready()
+        final_top_k = top_k or self.final_top_k
         coarse = self.retriever.retrieve(
             query=query,
             vector_store=self.vector_store,
-            top_k=max((top_k or self.final_top_k) * 2, 8),
+            top_k=max(final_top_k * 3, 10),
         )
-        return self.reranker.rerank(
-            query=query,
-            chunks=coarse,
-            top_k=top_k or self.final_top_k,
-        )
+        return self.reranker.rerank(query=query, chunks=coarse, top_k=final_top_k)
 
-    def format_for_prompt(self, query: str, top_k: int | None = None, max_chars: int = 1800) -> str:
-        chunks = self.retrieve(query=query, top_k=top_k)
+    def search(self, query: str, top_k: int = 4) -> list[str]:
+        return [
+            self._format_chunk(chunk, index)
+            for index, chunk in enumerate(self.retrieve(query=query, top_k=top_k), start=1)
+        ]
+
+    def format_for_prompt(self, query: str, top_k: int = 4) -> str:
+        chunks = self.search(query=query, top_k=top_k)
         if not chunks:
-            return "无额外知识命中。"
+            return "无"
+        return "\n\n".join(chunks)
 
-        lines: list[str] = []
-        used_chars = 0
-
-        for index, chunk in enumerate(chunks, start=1):
-            block = (
-                f"[知识片段 {index}]\n"
-                f"标题：{chunk.title}\n"
-                f"来源：{Path(chunk.source_path).name}\n"
-                f"命中词：{', '.join(chunk.matched_terms)}\n"
-                f"召回来源：{', '.join(chunk.retrieval_sources)}\n"
-                f"内容：\n{chunk.content.strip()}\n"
-            )
-
-            if used_chars + len(block) > max_chars:
-                break
-
-            lines.append(block)
-            used_chars += len(block)
-
-        return "\n".join(lines) if lines else "无额外知识命中。"
-
-    def debug_retrieve(self, query: str, top_k: int | None = None) -> list[dict]:
-        chunks = self.retrieve(query=query, top_k=top_k)
+    def debug_retrieve(self, query: str, top_k: int | None = None) -> list[dict[str, Any]]:
         return [
             {
                 "chunk_id": chunk.chunk_id,
+                "doc_id": chunk.doc_id,
                 "title": chunk.title,
                 "source_path": chunk.source_path,
-                "score": round(chunk.score, 4),
-                "matched_terms": chunk.matched_terms,
+                "score": round(chunk.score, 6),
+                "bm25_rank": chunk.bm25_rank,
+                "vector_rank": chunk.vector_rank,
+                "cosine_score": round(chunk.cosine_score, 6) if chunk.cosine_score is not None else None,
                 "retrieval_sources": chunk.retrieval_sources,
-                "preview": chunk.content[:180],
+                "preview": chunk.content[:260],
             }
-            for chunk in chunks
+            for chunk in self.retrieve(query=query, top_k=top_k)
         ]
 
-    def stats(self) -> dict:
+    def stats(self) -> dict[str, Any]:
         return {
             "knowledge_dir": str(self.knowledge_dir),
             "docs_index_path": str(self.docs_index_path),
             "faiss_dir": str(self.faiss_dir),
             "chunk_count": len(self.documents),
             "vector_count": self.vector_store.count(),
+            "chunk_size": self.chunk_size,
+            "chunk_overlap": self.chunk_overlap,
+            "final_top_k": self.final_top_k,
         }
+
+    def _format_chunk(self, chunk: RetrievedChunk, index: int) -> str:
+        source_name = Path(chunk.source_path).name if chunk.source_path else "unknown"
+        cosine_score = f"{chunk.cosine_score:.4f}" if chunk.cosine_score is not None else "无"
+        sources = ", ".join(chunk.retrieval_sources) if chunk.retrieval_sources else "unknown"
+
+        return (
+            f"[知识片段 {index}]\n"
+            f"标题: {chunk.title}\n"
+            f"来源: {source_name}\n"
+            f"召回方式: {sources}\n"
+            f"BM25排名: {chunk.bm25_rank if chunk.bm25_rank is not None else '无'}\n"
+            f"向量排名: {chunk.vector_rank if chunk.vector_rank is not None else '无'}\n"
+            f"余弦相似度: {cosine_score}\n"
+            f"内容:\n{chunk.content.strip()}"
+        )
 
     def _save_documents(self, documents: list[Document]) -> None:
         self.docs_index_path.parent.mkdir(parents=True, exist_ok=True)
-
-        payload = [
-            {
-                "page_content": doc.page_content,
-                "metadata": doc.metadata,
-            }
-            for doc in documents
-        ]
-
+        payload = [{"page_content": doc.page_content, "metadata": doc.metadata} for doc in documents]
         self.docs_index_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -160,9 +153,6 @@ class RAGPipeline:
     def _load_documents(self) -> None:
         data = json.loads(self.docs_index_path.read_text(encoding="utf-8"))
         self.documents = [
-            Document(
-                page_content=item["page_content"],
-                metadata=item["metadata"],
-            )
+            Document(page_content=item["page_content"], metadata=item["metadata"])
             for item in data
         ]

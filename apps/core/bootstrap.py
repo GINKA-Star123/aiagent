@@ -14,6 +14,7 @@ from aiagent.graphs.llm_graph import LLMRunner
 from aiagent.graphs.main_graph import MainRunner
 from aiagent.graphs.planner_graph import PlannerRunner
 from aiagent.graphs.state_graph import StateRunner
+from aiagent.graphs.rag_graph import RAGRunner
 from aiagent.knowledge.document_loader import DocumentLoader
 from aiagent.knowledge.rag_pipeline import RAGPipeline
 from aiagent.knowledge.reranker import SimpleReranker
@@ -93,6 +94,13 @@ def build_runtime() -> CoreRuntime:
         final_top_k=settings.rag_final_top_k,
     )
     rag_pipeline.build_index(force_rebuild=False)
+    
+    rag_runner = RAGRunner(
+    rag_pipeline=rag_pipeline,
+    top_k=settings.rag_final_top_k,
+    min_cosine_score=0.42,
+    require_relevance=True,
+)
 
     state_llm_service = StateLLMService(settings=settings)
     state_analyzer = StateAnalyzer(llm_service=state_llm_service)
@@ -120,6 +128,7 @@ def build_runtime() -> CoreRuntime:
         state_runner=state_runner,
         planner_runner=planner_runner,
         llm_runner=llm_runner,
+        rag_runner=rag_runner,
     )
 
     persona_loader = PersonaLoader()

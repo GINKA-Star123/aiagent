@@ -1,4 +1,5 @@
 """Output payload schema definitions."""
+
 from datetime import datetime
 from enum import StrEnum
 from uuid import uuid4
@@ -25,7 +26,9 @@ class ResponsePacket(BaseModel):
     expression: str | None = None
 
     audio_path: str | None = None
+    audio_url: str | None = None
     audio_segments: list[str] = Field(default_factory=list)
+    audio_segment_urls:list[str] = Field(default_factory=list)
     audio_segment_texts: list[str] = Field(default_factory=list)
 
     live2d_command_path: str | None = None

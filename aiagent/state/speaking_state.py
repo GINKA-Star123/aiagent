@@ -1,26 +1,35 @@
-"""Speech playback and interruption state."""
+"""Speech playback and TTS generation state."""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
+
 
 class SpeakingState(BaseModel):
-    is_speaking : bool = False
-    current_text : str = ""
-    last_audio_path : str = ""
-    current_audio_path : str = ""
+    is_speaking: bool = False
+    current_text: str = ""
+    last_audio_path: str = ""
+    current_audio_path: str = ""
 
-    playback_status :str = "idle"
-    is_interrupted : bool = False
-    last_stop_reason : str = ""
+    last_audio_url: str = ""
+    current_audio_url: str = ""
 
-    last_tts_text : str = ""
-    current_provider:str = ""
-    audio_duration_sec :float = 0.0
+    playback_status: str = "idle"
+    is_interrupted: bool = False
+    last_stop_reason: str = ""
 
-    playback_started_at :str = ""
-    playback_finished_at : str = ""
-    last_updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
-    
+    last_tts_text: str = ""
+    current_provider: str = ""
+    audio_duration_sec: float = 0.0
+
+    tts_status: str = "idle"
+    tts_error: str = ""
+    pending_text: str = ""
+
+    playback_started_at: str = ""
+    playback_finished_at: str = ""
+    last_updated_at: str = Field(
+        default_factory=lambda: datetime.now().isoformat(timespec="seconds")
+    )

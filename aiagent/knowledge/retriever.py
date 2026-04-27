@@ -1,7 +1,8 @@
-"""Hybrid retriever with BM25 + FAISS."""
 from __future__ import annotations
 
 import re
+from collections import defaultdict
+from dataclasses import dataclass
 
 from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
@@ -17,114 +18,125 @@ class RetrievedChunk(BaseModel):
     source_path: str
     content: str
     score: float
-    matched_terms: list[str] = Field(default_factory=list)
+    bm25_rank: int | None = None
+    vector_rank: int | None = None
+    cosine_score: float | None = None
     retrieval_sources: list[str] = Field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _Candidate:
+    doc: Document
+    source: str
+    rank: int
+    cosine_score: float | None = None
+
+
 class HybridRetriever:
-    def __init__(
-        self,
-        bm25_top_k: int = 6,
-        vector_top_k: int = 6,
-    ) -> None:
+    def __init__(self, bm25_top_k: int = 8, vector_top_k: int = 8, rrf_k: int = 60) -> None:
         self.bm25_top_k = bm25_top_k
         self.vector_top_k = vector_top_k
+        self.rrf_k = rrf_k
         self.bm25_retriever: BM25Retriever | None = None
         self.documents: list[Document] = []
 
     def build(self, documents: list[Document]) -> None:
         self.documents = documents
-        self.bm25_retriever = BM25Retriever.from_documents(documents)
+        self.bm25_retriever = BM25Retriever.from_documents(
+            documents,
+            preprocess_func=self._tokenize,
+        )
         self.bm25_retriever.k = self.bm25_top_k
 
-    def retrieve(
-        self,
-        query: str,
-        vector_store: LangChainVectorStore,
-        top_k: int = 8,
-    ) -> list[RetrievedChunk]:
-        query_terms = self._tokenize(query)
-        merged: dict[str, RetrievedChunk] = {}
+    def retrieve(self, query: str, vector_store: LangChainVectorStore, top_k: int = 10) -> list[RetrievedChunk]:
+        query = query.strip()
+        if not query:
+            return []
+
+        candidates: list[_Candidate] = []
 
         if self.bm25_retriever is not None:
-            bm25_docs = self.bm25_retriever.invoke(query)
-            self._merge_docs(
-                merged=merged,
-                docs=bm25_docs,
-                query_terms=query_terms,
-                source_name="bm25",
-                base_score=1.0,
+            for rank, doc in enumerate(self.bm25_retriever.invoke(query), start=1):
+                candidates.append(_Candidate(doc=doc, source="bm25", rank=rank))
+
+        for rank, (doc, cosine_score) in enumerate(
+            vector_store.similarity_search_with_score(query, k=self.vector_top_k),
+            start=1,
+        ):
+            candidates.append(
+                _Candidate(doc=doc, source="vector", rank=rank, cosine_score=cosine_score)
             )
 
-        vector_docs = vector_store.similarity_search(query, k=self.vector_top_k)
-        self._merge_docs(
-            merged=merged,
-            docs=vector_docs,
-            query_terms=query_terms,
-            source_name="vector",
-            base_score=0.9,
-        )
+        return self._fuse(candidates, top_k=top_k)
 
-        items = list(merged.values())
-        items.sort(key=lambda item: item.score, reverse=True)
-        return items[:top_k]
+    def _fuse(self, candidates: list[_Candidate], top_k: int) -> list[RetrievedChunk]:
+        scores: dict[str, float] = defaultdict(float)
+        doc_by_id: dict[str, Document] = {}
+        sources_by_id: dict[str, set[str]] = defaultdict(set)
+        bm25_rank_by_id: dict[str, int] = {}
+        vector_rank_by_id: dict[str, int] = {}
+        cosine_by_id: dict[str, float] = {}
 
-    def _merge_docs(
-        self,
-        merged: dict[str, RetrievedChunk],
-        docs: list[Document],
-        query_terms: list[str],
-        source_name: str,
-        base_score: float,
-    ) -> None:
-        for rank, doc in enumerate(docs):
+        for candidate in candidates:
+            chunk_id = self._chunk_id(candidate.doc)
+            doc_by_id[chunk_id] = candidate.doc
+            sources_by_id[chunk_id].add(candidate.source)
+            scores[chunk_id] += 1.0 / (self.rrf_k + candidate.rank)
+
+            if candidate.source == "bm25":
+                bm25_rank_by_id[chunk_id] = min(candidate.rank, bm25_rank_by_id.get(chunk_id, candidate.rank))
+
+            if candidate.source == "vector":
+                vector_rank_by_id[chunk_id] = min(candidate.rank, vector_rank_by_id.get(chunk_id, candidate.rank))
+                if candidate.cosine_score is not None:
+                    cosine_by_id[chunk_id] = max(candidate.cosine_score, cosine_by_id.get(chunk_id, 0.0))
+
+        chunks: list[RetrievedChunk] = []
+        for chunk_id, score in scores.items():
+            doc = doc_by_id[chunk_id]
             metadata = doc.metadata
-            chunk_id = str(metadata.get("chunk_id", "unknown-chunk"))
-            title = str(metadata.get("title", "untitled"))
-            content = doc.page_content.strip()
-            matched_terms = self._match_terms(query_terms, title, content)
-            score = base_score - rank * 0.03 + len(matched_terms) * 0.08
+            cosine_score = cosine_by_id.get(chunk_id)
+            if cosine_score is not None:
+                score += cosine_score * 0.03
 
-            if chunk_id in merged:
-                existing = merged[chunk_id]
-                existing.score = max(existing.score, score)
-                existing.matched_terms = sorted(set(existing.matched_terms + matched_terms))
-                existing.retrieval_sources = sorted(set(existing.retrieval_sources + [source_name]))
-                merged[chunk_id] = existing
-                continue
-
-            merged[chunk_id] = RetrievedChunk(
-                chunk_id=chunk_id,
-                doc_id=str(metadata.get("doc_id", "unknown-doc")),
-                title=title,
-                source_path=str(metadata.get("source_path", "")),
-                content=content,
-                score=score,
-                matched_terms=matched_terms,
-                retrieval_sources=[source_name],
+            chunks.append(
+                RetrievedChunk(
+                    chunk_id=chunk_id,
+                    doc_id=str(metadata.get("doc_id", "unknown-doc")),
+                    title=str(metadata.get("title", "untitled")),
+                    source_path=str(metadata.get("source_path", "")),
+                    content=doc.page_content.strip(),
+                    score=score,
+                    bm25_rank=bm25_rank_by_id.get(chunk_id),
+                    vector_rank=vector_rank_by_id.get(chunk_id),
+                    cosine_score=cosine_score,
+                    retrieval_sources=sorted(sources_by_id[chunk_id]),
+                )
             )
+
+        chunks.sort(key=lambda item: item.score, reverse=True)
+        return chunks[:top_k]
+
+    def _chunk_id(self, doc: Document) -> str:
+        return str(doc.metadata.get("chunk_id", "unknown-chunk"))
 
     def _tokenize(self, text: str) -> list[str]:
         lowered = text.lower()
-        tokens = re.findall(r"[\u4e00-\u9fff]{2,}|[a-z0-9_]{2,}", lowered)
+        english_terms = re.findall(r"[a-z0-9_./:-]{2,}", lowered)
+        chinese_blocks = re.findall(r"[\u4e00-\u9fff]+", lowered)
 
-        unique: list[str] = []
+        chinese_terms: list[str] = []
+        for block in chinese_blocks:
+            if len(block) <= 4:
+                chinese_terms.append(block)
+                continue
+            chinese_terms.extend(block[i : i + 2] for i in range(len(block) - 1))
+            chinese_terms.extend(block[i : i + 3] for i in range(len(block) - 2))
+
         seen: set[str] = set()
-        for token in tokens:
-            if token not in seen:
-                seen.add(token)
-                unique.append(token)
-        return unique
-
-    def _match_terms(self, query_terms: list[str], title: str, content: str) -> list[str]:
-        title_lower = title.lower()
-        content_lower = content.lower()
-
-        matched: list[str] = []
-        for term in query_terms:
-            if term in title_lower or term in content_lower:
-                matched.append(term)
-
-        return matched
-
-
+        output: list[str] = []
+        for term in english_terms + chinese_terms:
+            if term not in seen:
+                seen.add(term)
+                output.append(term)
+        return output

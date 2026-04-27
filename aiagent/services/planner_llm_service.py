@@ -143,6 +143,10 @@ class PlannerLLMService:
             reply_instruction=str(data.get("reply_instruction", "")),
             reasoning=str(data.get("reasoning", "")),
             confidence=float(data.get("confidence", 0.0)),
+            should_retrieve=bool(data.get("should_retrieve", False)),
+            retrieval_query=str(data.get("retrieval_query", "")),
+            retrieval_reason=str(data.get("retrieval_reason", "")),
+
         )
 
     def _fallback_plan(self) -> PlannerInferenceOutput:
@@ -156,4 +160,7 @@ class PlannerLLMService:
             reply_instruction="自然接住当前输入，给出符合角色口吻的实时回复。",
             reasoning="fallback_plan",
             confidence=0.2,
+            should_retrieve=False,
+            retrieval_query="",
+            retrieval_reason="",
         )

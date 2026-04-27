@@ -34,7 +34,6 @@ class AgentCore:
                 event=event,
                 persona_runtime=persona,
                 history=history,
-                retrieved_context=[],
             )
 
             self.emotion_state.current_emotion = packet.emotion

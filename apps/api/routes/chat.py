@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from apps.core.runtime_registry import get_runtime, get_runtime_error
 from aiagent.schemas.events import SystemEvent, SystemEventType
 from aiagent.schemas.inputs import InputEvent, InputSource
-from aiagent.schemas.outputs import OutputEvent, ResponsePacket
+from aiagent.schemas.outputs import OutputEvent
 
 router = APIRouter()
 logger = logging.getLogger("aiagent.api.chat")
@@ -60,52 +60,15 @@ def _handle_chat_with_debug(runtime, req: ChatRequest) -> dict:
         raise ValueError("Empty input event cannot be processed.")
 
     persona_runtime = dispatcher.persona_manager.get_active_persona()
-    main_runner = dispatcher.agent_core.main_runner
-
     history = dispatcher.agent_core._build_history_lines()
-    retrieved_context: list[str] = []
 
-    state_result = main_runner.state_runner.run(
-        user_text=event.text,
-        user_name=event.user_name,
+    graph_result = dispatcher.agent_core.main_runner.run_debug(
+        event=event,
         persona_runtime=persona_runtime,
         history=history,
     )
 
-    planner_result = main_runner.planner_runner.run(
-        user_text=event.text,
-        user_name=event.user_name,
-        state_result=state_result,
-        persona_runtime=persona_runtime,
-    )
-
-    llm_result = main_runner.llm_runner.run(
-        thread_id=event.user_id,
-        user_text=event.text,
-        user_name=event.user_name,
-        state_result=state_result,
-        planner_result=planner_result,
-        persona_runtime=persona_runtime,
-        retrieved_context=retrieved_context,
-    )
-
-    packet_metadata = {}
-    packet_metadata.update(getattr(state_result, "metadata", {}))
-    packet_metadata.update(getattr(planner_result, "metadata", {}))
-    packet_metadata.update(getattr(llm_result, "metadata", {}))
-    packet_metadata["main_graph"] = "done"
-
-    packet = ResponsePacket(
-        reply_text=llm_result.reply_text,
-        base_reply_text=llm_result.reply_text,
-        emotion=main_runner._to_emotion_label(llm_result.target_emotion),
-        should_speak=llm_result.should_speak,
-        should_store_memory=llm_result.should_store_memory,
-        motion=llm_result.target_motion,
-        expression=llm_result.target_expression,
-        metadata=packet_metadata,
-    )
-
+    packet = graph_result["response_packet"]
     output = OutputEvent(packet=packet)
     output = dispatcher.output_broadcaster.broadcast(output)
     dispatcher._store_memories(event, output)
@@ -131,13 +94,18 @@ def _handle_chat_with_debug(runtime, req: ChatRequest) -> dict:
         )
     )
 
+    rag_result = graph_result["rag_result"]
+
     return {
         "output": output,
-        "state_result": state_result.model_dump(mode="json"),
-        "planner_result": planner_result.model_dump(mode="json"),
-        "llm_result": llm_result.model_dump(mode="json"),
+        "state_result": graph_result["state_result"].model_dump(mode="json"),
+        "planner_result": graph_result["planner_result"].model_dump(mode="json"),
+        "rag_result": rag_result.model_dump(mode="json"),
+        "llm_result": graph_result["llm_result"].model_dump(mode="json"),
         "history": history,
-        "retrieved_context": retrieved_context,
+        "retrieved_context": rag_result.context,
+        "rag_debug": rag_result.debug_chunks,
+        "metadata": graph_result.get("metadata", {}),
     }
 
 
@@ -185,9 +153,12 @@ def chat(req: ChatRequest):
                 "debug": {
                     "history": result["history"],
                     "retrieved_context": result["retrieved_context"],
+                    "rag_debug": result["rag_debug"],
+                    "rag_result": result["rag_result"],
                     "state_result": result["state_result"],
                     "planner_result": result["planner_result"],
                     "llm_result": result["llm_result"],
+                    "main_metadata": result["metadata"],
                 },
             },
             ensure_ascii=False,

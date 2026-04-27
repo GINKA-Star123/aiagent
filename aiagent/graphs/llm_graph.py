@@ -104,6 +104,7 @@ class LLMRunner:
                 "short_term_window": str(self.short_term_turn_window),
                 "history_message_count": str(len(summarized_messages)),
                 "summary_enabled": "true",
+                "retrieved_context_count": str(len(graph_input.retrieved_context)),
             },
         }
 
@@ -182,9 +183,9 @@ class LLMRunner:
             retrieved_context=retrieved_context or [],
         )
 
-        result = self.graph.invoke(
+        result = self.graph.invoke( 
             {
-                "input": graph_input.model_dump(mode="json"),#type: ignore
+                "input": graph_input.model_dump(mode="json"), # type: ignore
                 "messages": [HumanMessage(content=user_text)],
             },
             config={"configurable": {"thread_id": thread_id}},
@@ -205,6 +206,7 @@ class LLMRunner:
             target_motion=graph_input.target_motion or persona_runtime.get_default_motion(),
             target_expression=graph_input.target_expression or persona_runtime.get_default_expression(),
             short_term_messages=self.recent_dialogue_lines(thread_id=thread_id, limit=8),
+            retrieved_context=graph_input.retrieved_context,
             metadata=result.get("metadata", {}),
         )
 
@@ -280,9 +282,9 @@ class LLMRunner:
         summary_context: dict[str, RunningSummary],
     ) -> str:
         retrieved_context_text = (
-            "\n".join(f"- {item}" for item in graph_input.retrieved_context)
+            "\n\n".join(graph_input.retrieved_context)
             if graph_input.retrieved_context
-            else "- 无"
+            else "无"
         )
 
         running_summary = summary_context.get("running_summary")
@@ -315,14 +317,18 @@ class LLMRunner:
             f"- planner_confidence: {graph_input.planner_confidence}\n"
             f"- planner_reasoning: {graph_input.planner_reasoning}\n"
             f"- reply_instruction: {graph_input.reply_instruction}\n\n"
-            f"外部检索上下文:\n{retrieved_context_text}\n\n"
-            "最终生成要求:\n"
-            "1. 直接输出最终回复，不要解释分析过程。\n"
-            "2. 不要输出 JSON，不要写思考过程。\n"
-            "3. 不要重新自我介绍，不要说“我是乐正绫”。\n"
-            "4. 优先承接当前上下文，像实时聊天一样自然。\n"
-            "5. 优先服从 reply_instruction。\n"
-            "6. 回复要符合角色口吻，简洁、自然。\n"
+            f"外部知识库上下文:\n{retrieved_context_text}\n\n"
+            f"最终生成要求:\n"
+            f"1. 直接输出最终回复，不要解释分析过程。\n"
+            f"2. 不要输出 JSON，不要写思考过程。\n"
+            f"3. 不要重新自我介绍。\n"
+            f"4. 优先承接当前上下文，像聊天一样自然。\n"
+            f"5. 优先服从 reply_instruction。\n"
+            f"6. 如果外部知识库上下文不是“无”，并且和用户问题相关，必须优先使用知识库内容。\n"
+            f"7. 如果用户询问事实、资料、设定、歌曲、口号、应援词、生日、专辑、人物关系，必须以知识库内容为准。\n"
+            f"8. 如果知识库给出了明确答案，不要改写成知识库没有的说法。\n"
+            f"9. 如果知识库没有答案，可以说明资料里没有明确写，不要编造。\n"
+            f"10. 回复要符合角色口吻，简洁、自然。\n"
         )
 
     def _message_role_name(self, message: BaseMessage) -> str:

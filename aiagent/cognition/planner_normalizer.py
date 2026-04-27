@@ -65,6 +65,10 @@ class PlannerNormalizer:
             reply_instruction=reply_instruction,
             reasoning=reasoning,
             confidence=confidence,
+            should_retrieve=bool(output.should_retrieve),
+            retrieval_query=output.retrieval_query.strip(),
+            retrieval_reason=output.retrieval_reason.strip(),
+
         )
 
     def _default_motion_for_emotion(self, emotion: str) -> str:
