@@ -20,26 +20,6 @@ class InputNormalizer:
             metadata=metadata or {}
         )
     
-    def normalize_danmaku(
-            self,
-            text:str,
-            user_id : str,
-            username: str,
-            room_id : str ="",
-            priority: EventPriority = EventPriority.NORMAL,
-        
-    ) -> InputEvent:
-        metadata = {"room_id": room_id,"source_label":"danmaku"}
-        return InputEvent(
-            source=InputSource.DNAMUKU,
-            text=text,
-            user_id=user_id,
-            user_name=username,
-            priority=priority,
-            metadata=metadata
-        )
-    
-
     def normalize_asr_text(
             self,
             text:str,

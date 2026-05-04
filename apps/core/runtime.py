@@ -13,7 +13,7 @@ from aiagent.perception.asr_listener import ASRListener
 from aiagent.perception.source_router import SourceRouter
 from aiagent.perception.voice_session_controller import VoiceSessionController
 from aiagent.perception.voice_turn_manager import VoiceTurnManager
-from aiagent.schemas.inputs import InputEvent, InputSource
+from aiagent.schemas.inputs import InputEvent, InputSource, InputAttachment
 from aiagent.schemas.outputs import OutputEvent
 from aiagent.services.llm_service import LLMService
 from aiagent.services.vision_service import VisionService
@@ -121,6 +121,57 @@ class CoreRuntime:
             user_name=username,
             metadata={"asr_mode": "voice_turn"},
         )
+        return self.handle_input_event(event)
+
+    def handle_multimodal_chat_upload(
+        self,
+        file_obj,
+        filename: str,
+        text: str,
+        user_id: str = "guest",
+        username: str = "guest",
+    ) -> OutputEvent:
+        attachments: list[InputAttachment] = []
+
+        if file_obj is not None and filename:
+            if self.vision_service is None:
+                raise RuntimeError("Vision service is not configured.")
+
+            stored = self.vision_service.image_store.save_upload(
+                file_obj=file_obj,
+                filename=filename,
+            )
+
+            attachments.append(
+                InputAttachment(
+                    type="image",
+                    path=str(stored.path),
+                    filename=filename,
+                    mime_type=f"image/{stored.format.lower()}",
+                    image_id=stored.image_id,
+                    metadata={
+                        "sha256": stored.sha256,
+                        "width": stored.width,
+                        "height": stored.height,
+                        "format": stored.format,
+                    },
+                )
+            )
+
+        modality = "mixed" if text.strip() and attachments else "image" if attachments else "text"
+
+        event = InputEvent(
+            source=InputSource.MULTIMODAL,
+            text=text,
+            user_id=user_id,
+            user_name=username,
+            modality=modality,
+            attachments=attachments,
+            metadata={
+                "input_source": "chat_multimodal",
+            },
+        )
+
         return self.handle_input_event(event)
 
     def interrupt_speaking(self, reason: str = "runtime_interrupt") -> dict[str, str]:

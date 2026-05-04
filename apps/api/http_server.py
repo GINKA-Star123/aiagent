@@ -13,6 +13,7 @@ from apps.api.routes.knowledge import router as knowledge_router
 from apps.api.routes.memory import router as memory_router
 from apps.api.routes.vision import router as vision_router
 from apps.api.routes.voice import router as voice_router
+from apps.api.routes.multimodal_chat import router as multimodal_chat_router
 from config.settings import settings
 
 logger = logging.getLogger("aiagent.api")
@@ -35,6 +36,7 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(chat_router)
+app.include_router(multimodal_chat_router)
 app.include_router(control_router)
 app.include_router(memory_router)
 app.include_router(knowledge_router)

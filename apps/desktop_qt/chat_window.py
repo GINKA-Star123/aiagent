@@ -1,9 +1,11 @@
 ﻿from __future__ import annotations
 
 import traceback
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 from PySide6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -87,6 +89,7 @@ class ChatWindow(QMainWindow):
         self.current_thread: QThread | None = None
         self.current_worker: Worker | None = None
         self.current_task_name = ""
+        self.selected_image_path = ""
 
         self._build_ui()
         self._append_system_message(f"桌面调试台已启动。当前用户：{self.username}。")
@@ -210,6 +213,22 @@ class ChatWindow(QMainWindow):
         self.input_edit.setMinimumHeight(120)
         self.input_edit.setMaximumHeight(190)
         layout.addWidget(self.input_edit)
+
+        image_row = QHBoxLayout()
+        self.image_label = QLabel("未选择图片")
+        self.image_label.setStyleSheet("font-size: 13px; color: #705e50;")
+        image_row.addWidget(self.image_label, 1)
+
+        self.select_image_button = QPushButton("选择图片")
+        self.select_image_button.clicked.connect(self.select_image_file)
+        image_row.addWidget(self.select_image_button)
+
+        self.clear_image_button = QPushButton("清除图片")
+        self.clear_image_button.clicked.connect(self.clear_selected_image)
+        self.clear_image_button.setDisabled(True)
+        image_row.addWidget(self.clear_image_button)
+
+        layout.addLayout(image_row)
 
         button_row = QHBoxLayout()
         self.send_button = QPushButton("发送消息")
@@ -403,10 +422,12 @@ class ChatWindow(QMainWindow):
             self.search_memory_button,
             self.memory_stats_button,
             self.startup_check_button,
+            self.select_image_button,
         ]
         for button in buttons:
             button.setDisabled(busy)
 
+        self.clear_image_button.setDisabled(busy or not bool(self.selected_image_path))
         self.input_edit.setDisabled(busy)
 
         if self.recorder.is_recording:
@@ -415,6 +436,35 @@ class ChatWindow(QMainWindow):
         else:
             self.start_record_button.setDisabled(busy)
             self.stop_record_button.setDisabled(True)
+
+    def select_image_file(self) -> None:
+        image_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择图片",
+            "",
+            "图片文件 (*.png *.jpg *.jpeg *.webp);;所有文件 (*)",
+        )
+        if not image_path:
+            return
+
+        self.selected_image_path = image_path
+        self._update_selected_image_label()
+        self._set_status(f"已选择图片：{Path(image_path).name}")
+
+    def clear_selected_image(self) -> None:
+        self.selected_image_path = ""
+        self._update_selected_image_label()
+        self._set_status("已清除待发送图片")
+
+    def _update_selected_image_label(self) -> None:
+        if not self.selected_image_path:
+            self.image_label.setText("未选择图片")
+            self.clear_image_button.setDisabled(True)
+            return
+
+        path = Path(self.selected_image_path)
+        self.image_label.setText(f"待发送图片：{path.name}")
+        self.clear_image_button.setDisabled(False)
 
     def _start_worker(self, task_name: str, fn) -> None:
         if self.current_thread is not None and self.current_thread.isRunning():
@@ -496,20 +546,31 @@ class ChatWindow(QMainWindow):
 
     def send_text_message(self) -> None:
         text = self.input_edit.toPlainText().strip()
-        if not text:
+        image_path = self.selected_image_path
+        if not text and not image_path:
             return
 
-        self._append_user_message(self.username, text)
+        request_text = text or "请你看看这张图，然后和我聊聊。"
+        display_text = request_text
+        if image_path:
+            display_text = f"{request_text}\n[图片] {Path(image_path).name}"
+
+        self._append_user_message(self.username, display_text)
         self.input_edit.clear()
+        if image_path:
+            self.selected_image_path = ""
+            self._update_selected_image_label()
+
         self._set_busy(True)
         self._set_status("正在请求回复...")
 
         self._start_worker(
             "chat",
-            lambda: self.api_client.send_chat(
+            lambda: self.api_client.send_multimodal_chat(
                 user_id=self.user_id,
                 username=self.username,
-                text=text,
+                text=request_text,
+                image_path=image_path or None,
             ),
         )
 

@@ -1,73 +1,100 @@
-"""Route normalized input events by source and priority."""
+from __future__ import annotations
 
 from aiagent.perception.input_normalizer import InputNormalizer
-from aiagent.schemas.inputs import InputEvent, InputSource
+from aiagent.schemas.inputs import EventPriority, InputAttachment, InputEvent, InputSource
+
 
 class SourceRouter:
-    def __init__(self,input_normalizer: InputNormalizer) -> None:
+    def __init__(self, input_normalizer: InputNormalizer) -> None:
         self.input_normalizer = input_normalizer
 
-    def route(self,source:str| InputSource,payload:dict) -> InputEvent:
-        source_enum = self._to_source_enum(source)
-        priority = self.input_normalizer.parse_priority(payload.get("priority"))
+    def route(self, source: str, payload: dict) -> InputEvent:
+        normalized_source = self._normalize_source(source)
+        priority = self.input_normalizer.parse_priority(payload.get("priority", EventPriority.NORMAL))
 
-        if source_enum == InputSource.CHAT:
-            return self.input_normalizer.normalize_chat(
-                text=str(payload.get("text", "")),
-                user_id=str(payload.get("user_id", "guest")),
-                username=str(payload.get("username", "guest")),
+        text = str(payload.get("text", "") or "")
+        user_id = str(payload.get("user_id") or "guest")
+        username = str(payload.get("username") or payload.get("user_name") or "guest")
+        metadata = payload.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        attachments = [
+            InputAttachment(**item)
+            for item in payload.get("attachments", [])
+            if isinstance(item, dict)
+        ]
+
+        modality = str(payload.get("modality") or self._infer_modality(text, attachments))
+
+        if normalized_source == InputSource.CHAT and not attachments:
+            event = self.input_normalizer.normalize_chat(
+                text=text,
+                user_id=user_id,
+                username=username,
                 priority=priority,
-                metadata=self._stringify_metadata(payload.get("metadata", {})),
+                metadata=metadata,
             )
+            event.modality = modality
+            event.attachments = attachments
+            return event
 
-        if source_enum == InputSource.DNAMUKU:
-            return self.input_normalizer.normalize_danmaku(
-                text=str(payload.get("text", "")),
-                user_id=str(payload.get("user_id", "danmaku-user")),
-                username=str(payload.get("username", "弹幕用户")),
-                room_id=str(payload.get("room_id", "")),
+        if normalized_source == InputSource.ASR and not attachments:
+            event = self.input_normalizer.normalize_asr_text(
+                text=text,
+                user_id=user_id,
+                username=username,
+                asr_mode=str(metadata.get("asr_mode", "text")),
                 priority=priority,
             )
+            event.modality = modality
+            event.attachments = attachments
+            return event
 
-        if source_enum == InputSource.ASR:
-            return self.input_normalizer.normalize_asr_text(
-                text=str(payload.get("text", "")),
-                user_id=str(payload.get("user_id", "mic")),
-                username=str(payload.get("username", "麦克风输入")),
-                asr_mode=str(payload.get("asr_mode", "text")),
+        if normalized_source == InputSource.SYSTEM and not attachments:
+            event = self.input_normalizer.normalize_system(
+                text=text,
+                user_id=user_id,
+                username=username,
                 priority=priority,
             )
+            event.modality = modality
+            event.attachments = attachments
+            return event
 
-        if source_enum == InputSource.SYSTEM:
-            return self.input_normalizer.normalize_system(
-                text=str(payload.get("text", "")),
-                user_id=str(payload.get("user_id", "system")),
-                username=str(payload.get("username", "system")),
-                priority=priority,
-            )
+        return InputEvent(
+            source=normalized_source,
+            text=text,
+            user_id=user_id,
+            user_name=username,
+            priority=priority,
+            modality=modality,
+            attachments=attachments,
+            metadata=metadata,
+        )
 
-        raise ValueError(f"Unsupported input source: {source}")
+    def _normalize_source(self, source: str) -> InputSource:
+        value = (source or "").strip().lower()
 
-
-    def _to_source_enum(self,source:str|InputSource) -> InputSource:
-
-        if isinstance(source,InputSource):
-            return source
-        
-        normalized = str(source).strip().lower()
-
-        if normalized == "chat":
+        if value == "chat":
             return InputSource.CHAT
-        elif normalized in {"danmaku","dnamuku"}:
-            return InputSource.DNAMUKU
-        elif normalized == "asr":
+        if value == "asr":
             return InputSource.ASR
-        elif normalized == "system":
+        if value == "vision":
+            return InputSource.VISION
+        if value == "multimodal":
+            return InputSource.MULTIMODAL
+        if value == "system":
             return InputSource.SYSTEM
-        
-        raise ValueError(f"Unknown source: {source}")
-    
-    def _stringify_metadata(self,metadata) -> dict[str,str]:
-        if not isinstance(metadata,dict):
-            return {}
-        return {str(key):str(value) for key,value in metadata.items()}
+
+        return InputSource.CHAT
+
+    def _infer_modality(self, text: str, attachments: list[InputAttachment]) -> str:
+        has_text = bool(text.strip())
+        has_image = any(item.type == "image" for item in attachments)
+
+        if has_text and has_image:
+            return "mixed"
+        if has_image:
+            return "image"
+        return "text"

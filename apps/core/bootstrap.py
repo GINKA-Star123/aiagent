@@ -220,6 +220,7 @@ def build_runtime() -> CoreRuntime:
         llm_runner=llm_runner,
         rag_runner=rag_runner,
         memory_runner=memory_runner,
+        vision_runner=vision_runnner,
     )
 
     persona_loader = PersonaLoader()

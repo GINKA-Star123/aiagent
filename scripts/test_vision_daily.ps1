@@ -1,7 +1,7 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:8000",
     [string]$ImagePath = "",
-    [string]$UserId = "vision_test_u001",
+    [string]$UserId = "vision_daily_u001",
     [string]$Prompt = ""
 )
 
@@ -18,7 +18,7 @@ if (!(Test-Path -LiteralPath $ImagePath)) {
 
 if ([string]::IsNullOrWhiteSpace($Prompt)) {
     $Prompt = [System.Text.Encoding]::UTF8.GetString(
-        [System.Convert]::FromBase64String("6K+35YiG5p6Q6L+Z5byg5Zu+77yM5ZKM5YCZ6YCJ6KeS6Imy5a+55q+U77yM5aaC5p6c5LiN56Gu5a6a5LiN6KaB5by65Yi26K6k5YeG44CC")
+        [System.Convert]::FromBase64String("6K+35L2g55yL55yL6L+Z5byg5pel5bi45Zu+54mH77yM6Ieq54S25Zyw5ZKM5oiR6IGK6IGK44CC")
     )
 }
 
@@ -90,21 +90,8 @@ function Invoke-VisionAnalyze {
 }
 
 Write-Host ""
-Write-Host "== Vision Character Index Stats ==" -ForegroundColor Cyan
-$stats = Invoke-RestMethod `
-    -Method Get `
-    -Uri "$BaseUrl/vision/characters/stats"
-$stats | ConvertTo-Json -Depth 40
+Write-Host "== Vision Daily Image Test ==" -ForegroundColor Cyan
 
-Write-Host ""
-Write-Host "== Rebuild Vision Character Index ==" -ForegroundColor Cyan
-$rebuild = Invoke-RestMethod `
-    -Method Post `
-    -Uri "$BaseUrl/vision/characters/rebuild?force_rebuild=true"
-$rebuild | ConvertTo-Json -Depth 40
-
-Write-Host ""
-Write-Host "== Analyze Image ==" -ForegroundColor Cyan
 $result = Invoke-VisionAnalyze `
     -Url "$BaseUrl/vision/analyze" `
     -ImagePath $ImagePath `
@@ -115,11 +102,12 @@ $result | ConvertTo-Json -Depth 60
 
 Write-Host ""
 Write-Host "== Key Result ==" -ForegroundColor Yellow
-$result.result.recognized_characters | ConvertTo-Json -Depth 20
-Write-Host "is_confident:" $result.result.is_confident
-Write-Host "confidence  :" $result.result.confidence
-Write-Host "image_type  :" $result.result.image_type
-Write-Host "summary     :" $result.result.summary
+Write-Host "image_type :" $result.result.image_type
+Write-Host "intent     :" $result.result.user_intent
+Write-Host "summary    :" $result.result.summary
+Write-Host "scene      :" $result.result.scene
+Write-Host "mood       :" $result.result.mood
+$result.result.daily_scene | ConvertTo-Json -Depth 20
 
 Write-Host ""
-Write-Host "== Vision test completed ==" -ForegroundColor Green
+Write-Host "== Daily image test completed ==" -ForegroundColor Green

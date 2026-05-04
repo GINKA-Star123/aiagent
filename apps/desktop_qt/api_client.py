@@ -95,6 +95,51 @@ class APIClient:
             f"/memory/user/{user_id}/search?query={encoded_query}&limit={limit}",
         )
 
+
+    def send_multimodal_chat(
+        self,
+        user_id: str,
+        username: str,
+        text: str,
+        image_path: str | None = None,
+    ) -> dict[str, Any]:
+        if not image_path:
+            return self.send_chat(
+                user_id=user_id,
+                username=username,
+                text=text,
+            )
+
+        path = Path(image_path)
+        with path.open("rb") as file_obj:
+            files = {
+                "file": (path.name, file_obj, self._guess_image_mime(path)),
+            }
+            data = {
+                "user_id": user_id,
+                "username": username,
+                "text": text,
+            }
+
+            with httpx.Client(timeout=240, trust_env=False) as client:
+                response = client.post(
+                    f"{self.base_url}/chat/multimodal",
+                    data=data,
+                    files=files,
+                )
+
+            return self._parse_response(response, "POST /chat/multimodal")
+
+    def _guess_image_mime(self, path: Path) -> str:
+        suffix = path.suffix.lower()
+        if suffix in {".jpg", ".jpeg"}:
+            return "image/jpeg"
+        if suffix == ".png":
+            return "image/png"
+        if suffix == ".webp":
+            return "image/webp"
+        return "application/octet-stream"
+
     def clear_user_memory(self, user_id: str) -> dict[str, Any]:
         return self._request("DELETE", f"/memory/user/{user_id}")
 

@@ -138,6 +138,18 @@ class CharacterCandidate(BaseModel):
     evidence:list[str] = Field(default_factory=list)
     metadata: dict[str,Any] = Field(default_factory=dict)
 
+class DailySceneResult(BaseModel):
+    scene_type : str ="unknown"
+    location_hint : str = ""
+    activity: str = ""
+    food:list[str] = Field(default_factory=list)
+    landmarks:list[str] = Field(default_factory=list)
+    objects:list[str] = Field(default_factory=list)
+    people_count:int | None =None
+    time_hint : str =""
+    weather_hint : str = ""
+    notable_details:list[str] = Field(default_factory=list)
+
 class VisionAnalyzeResult(BaseModel):
     image_id:str
     image_path:str
@@ -146,9 +158,13 @@ class VisionAnalyzeResult(BaseModel):
     height:int = 0
     format:str = ""
 
+    image_type:str ="unknown"
+    user_intent:str = "unknown"
+
     summary:str = ""
     objects : list[str] = Field(default_factory=list)
     scene:str = ""
+    daily_scene:DailySceneResult = Field(default_factory=DailySceneResult)
     ocr_text : list[str] = Field(default_factory=list)
     mood:str = ""
 
@@ -169,6 +185,7 @@ class LLMGraphInput(BaseModel):
     thread_id: str
     user_text: str
     user_name: str = "guest"
+    internal_context: str = ""
 
     persona_id: str = ""
     persona_name: str = ""
@@ -199,6 +216,7 @@ class LLMGraphResult(BaseModel):
     thread_id: str
     user_text: str
     user_name: str
+    internal_context: str = ""
 
     persona_id: str
     persona_name: str
