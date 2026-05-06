@@ -6,7 +6,7 @@ from aiagent.cognition.state_analyzer import StateAnalyzer
 from aiagent.cognition.state_normalizer import StateNormalizer
 from aiagent.common.logger import setup_logger
 from aiagent.expression.audio_playback_dispatcher import AudioPlaybackDispatcher
-from aiagent.expression.live2d_dispatcher import Live2DDispatcher
+from aiagent.expression.live2d_payload_dispatcher import Live2DDispatcher
 from aiagent.expression.motion_policy import MotionPolicy
 from aiagent.expression.output_broadcaster import OutputBroadcaster
 from aiagent.expression.tts_dispatcher import TTSDispatcher
@@ -22,6 +22,10 @@ from aiagent.knowledge.rag_pipeline import RAGPipeline
 from aiagent.knowledge.reranker import SimpleReranker
 from aiagent.knowledge.retriever import HybridRetriever
 from aiagent.knowledge.vector_store import LangChainVectorStore
+from aiagent.live2d.motion_mapper import Live2DMotionMapper
+from aiagent.live2d.payload_builder import Live2DPayloadBuilder
+from aiagent.live2d.registry import Live2DRegistry
+from aiagent.live2d.scene_mapper import Live2DSceneMapper
 from aiagent.vision.character_registry import CharacterRegistry
 from aiagent.vision.character_retriever import CharacterRetriever
 from aiagent.vision.image_store import ImageStore
@@ -56,7 +60,7 @@ from integrations.asr.mock_asr_client import MockASRClient
 from integrations.asr.vad import VoiceActivityDetector
 from integrations.audio.audio_player import AudioPlayer
 from integrations.audio.microphone_recorder import MicrophoneRecorder
-from integrations.live2d.mock_live2d_client import MockLive2DClient
+from integrations.live2d.file_live2d_client import FileLive2DClient
 from integrations.tts.gpt_sovits_client import GPTSoVITSClient
 from integrations.tts.indextts2_client import IndexTTS2Client
 from integrations.tts.mock_tts_client import MockTTSClient
@@ -265,9 +269,21 @@ def build_runtime() -> CoreRuntime:
         speaking_state=speaking_state,
     )
 
+    live2d_registry = Live2DRegistry(
+        character_root="data/live2d/characters",
+        background_root="data/live2d/backgrounds",
+    )
+    live2d_builder = Live2DPayloadBuilder(
+        registry=live2d_registry,
+        motion_mapper=Live2DMotionMapper(),
+        scene_mapper=Live2DSceneMapper(),
+    )
+
     output_broadcaster = OutputBroadcaster(
         tts_dispatcher=tts_dispatcher,
-        live2d_dispatcher=Live2DDispatcher(client=MockLive2DClient()),
+        live2d_dispatcher=Live2DDispatcher(
+            client=FileLive2DClient(payload_builder=live2d_builder),
+        ),
         motion_policy=MotionPolicy(),
         audio_playback_dispatcher=audio_playback_dispatcher,
     )

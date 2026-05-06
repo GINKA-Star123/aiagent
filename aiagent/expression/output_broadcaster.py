@@ -6,7 +6,7 @@ import logging
 import threading
 
 from aiagent.expression.audio_playback_dispatcher import AudioPlaybackDispatcher
-from aiagent.expression.live2d_dispatcher import Live2DDispatcher
+from aiagent.expression.live2d_payload_dispatcher import Live2DDispatcher
 from aiagent.expression.motion_policy import MotionPolicy
 from aiagent.expression.tts_dispatcher import TTSDispatcher
 from aiagent.schemas.outputs import OutputEvent

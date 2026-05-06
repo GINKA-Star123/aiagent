@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from apps.desktop_qt.api_client import APIClient
 from apps.desktop_qt.recorder import AudioRecorder
 from apps.desktop_qt.user_identity import DesktopIdentityStore
-
+from apps.desktop_qt.live2d_view_panel import Live2DViewPanel
 
 class Worker(QObject):
     finished = Signal(object)
@@ -342,6 +342,11 @@ class ChatWindow(QMainWindow):
 
         memory_card.layout().addLayout(memory_buttons)
         tools_layout.addWidget(memory_card)
+
+        live2d_card = self._build_section_card("Live2D Model")
+        self.live2d_panel = Live2DViewPanel(parent=self)
+        live2d_card.layout().addWidget(self.live2d_panel)
+        tools_layout.addWidget(live2d_card)
 
         self.live2d_view = self._build_text_panel(tools_layout, "Live2D Payload", 170)
         self.memory_view = self._build_text_panel(tools_layout, "Memory Status", 170)
@@ -730,6 +735,10 @@ class ChatWindow(QMainWindow):
         live2d = data.get("live2d", {})
         if isinstance(live2d, dict):
             self.live2d_view.setPlainText(self.api_client.pretty_json(live2d))
+            if hasattr(self, "live2d_panel") and live2d:
+                result = self.live2d_panel.apply_payload(live2d)
+                if result.get("last_error"):
+                    self._append_system_message(f"Live2D：{result.get('last_error')}")
         else:
             self.live2d_view.setPlainText(str(live2d))
 

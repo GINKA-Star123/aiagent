@@ -9,6 +9,7 @@ build/
 data/cache/
 data/logs/
 data/
+scripts/
 
 # Large model files
 data/models/
