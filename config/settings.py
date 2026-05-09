@@ -186,6 +186,10 @@ class Settings(BaseSettings):
     persona_style: str = DEFAULT_PERSONA_STYLE
     persona_rules: str = DEFAULT_PERSONA_RULES
 
+    live2d_provider: str = Field(default="mock", alias="LIVE2D_PROVIDER")
+    enable_live2d_runtime: bool = Field(default=False, alias="ENABLE_LIVE2D_RUNTIME")
+
+
     @field_validator("rag_embedding_dimensions", mode="before")
     @classmethod
     def _empty_rag_embedding_dimensions_to_none(cls, value):

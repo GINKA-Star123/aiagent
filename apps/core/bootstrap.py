@@ -7,6 +7,7 @@ from aiagent.cognition.state_normalizer import StateNormalizer
 from aiagent.common.logger import setup_logger
 from aiagent.expression.audio_playback_dispatcher import AudioPlaybackDispatcher
 from aiagent.expression.live2d_payload_dispatcher import Live2DDispatcher
+from aiagent.expression.mock_live2d_dispatcher import NoopLive2DDispatcher
 from aiagent.expression.motion_policy import MotionPolicy
 from aiagent.expression.output_broadcaster import OutputBroadcaster
 from aiagent.expression.tts_dispatcher import TTSDispatcher
@@ -268,22 +269,27 @@ def build_runtime() -> CoreRuntime:
         audio_player=AudioPlayer(),
         speaking_state=speaking_state,
     )
+    live2d_dispatcher = None
 
-    live2d_registry = Live2DRegistry(
-        character_root="data/live2d/characters",
-        background_root="data/live2d/backgrounds",
-    )
-    live2d_builder = Live2DPayloadBuilder(
-        registry=live2d_registry,
-        motion_mapper=Live2DMotionMapper(),
-        scene_mapper=Live2DSceneMapper(),
-    )
+    if settings.live2d_provider.strip().lower() in {"mock", "noop", "disabled"}:
+        live2d_dispatcher = NoopLive2DDispatcher()
+    else:
+        live2d_registry = Live2DRegistry(
+            character_root="data/live2d/characters",
+            background_root="data/live2d/backgrounds",
+        )
+        live2d_builder = Live2DPayloadBuilder(
+            registry=live2d_registry,
+            motion_mapper=Live2DMotionMapper(),
+            scene_mapper=Live2DSceneMapper(),
+        )
+        live2d_dispatcher = Live2DDispatcher(
+            client=FileLive2DClient(payload_builder=live2d_builder),
+        )
 
     output_broadcaster = OutputBroadcaster(
-        tts_dispatcher=tts_dispatcher,
-        live2d_dispatcher=Live2DDispatcher(
-            client=FileLive2DClient(payload_builder=live2d_builder),
-        ),
+        tts_dispatcher=tts_dispatcher, 
+        live2d_dispatcher=live2d_dispatcher, # type: ignore
         motion_policy=MotionPolicy(),
         audio_playback_dispatcher=audio_playback_dispatcher,
     )

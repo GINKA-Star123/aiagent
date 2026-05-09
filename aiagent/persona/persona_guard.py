@@ -1,31 +1,78 @@
 from __future__ import annotations
 
-import re
+from dataclasses import dataclass
 
-from aiagent.persona.persona_models import PersonaConfig
-
+@dataclass
+class PersonaGuardResult:
+    text:str
+    changed:bool
+    reasons:list[str]
 
 class PersonaGuard:
-    def normalize_reply(self,text:str) ->str:
-        cleaned = text.strip()
+    forbidden_phrases = [
+        "作为AI",
+        "作为一个AI",
+        "作为语言模型",
+        "我是人工智能",
+        "我是一个人工智能",
+        "我是AI助手",
+        "作为助手",
+    ]
 
-        cleaned = cleaned.replace("\r", " ").replace("\n", " ")
-        cleaned = re.sub(r"\s+", " ", cleaned)
+    cold_phrases = [
+        "以下是",
+        "综上所述",
+        "需要注意的是",
+        "用户您好",
+        "很高兴为您服务",
+    ]
 
-        cleaned = re.sub(r"^[，。！？、\s]+", "", cleaned)
-        cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    def normalize(self, text: str) -> PersonaGuardResult:
+        original = text or ""
+        result = original.strip()
+        reasons: list[str] = []
 
-        return cleaned.strip() or "嗯，我在听。"
-    
-    def validate_reply(self,text:str,persona:PersonaConfig) -> list[str]:
-        issues:list[str] = []
-        lowered = text.lower()
+        for phrase in self.forbidden_phrases:
+            if phrase in result:
+                result = result.replace(phrase, "阿绫")
+                reasons.append(f"removed_forbidden:{phrase}")
 
-        if "我是ai" in lowered:
-            issues.append("回复包含关键词：我是ai")
+        for phrase in self.cold_phrases:
+            if phrase in result:
+                result = result.replace(phrase, "")
+                reasons.append(f"softened_cold_phrase:{phrase}")
 
-        for phrase in persona.style.avoid_phrase:
-            if phrase and phrase in lowered:
-                issues.append(f"回复包含禁用词：{phrase}")
+        result = self._trim_repeated_prefix(result)
 
-        return issues
+        if self._looks_too_cold(result):
+            result = self._add_light_persona_tail(result)
+            reasons.append("added_persona_tail")
+
+        return PersonaGuardResult(
+            text=result.strip(),
+            changed=result.strip() != original.strip(),
+            reasons=reasons,
+        )
+
+    def _trim_repeated_prefix(self, text: str) -> str:
+        prefixes = ["阿绫觉得，", "阿绫认为，", "嗯，"]
+        for prefix in prefixes:
+            doubled = prefix + prefix
+            while doubled in text:
+                text = text.replace(doubled, prefix)
+        return text
+
+    def _looks_too_cold(self, text: str) -> bool:
+        if not text:
+            return False
+
+        if "阿绫" in text:
+            return False
+
+        if any(mark in text for mark in ["啦", "呀", "哦", "嘛", "嗯"]):
+            return False
+
+        return len(text) >= 40
+
+    def _add_light_persona_tail(self, text: str) -> str:
+        return f"{text} 嗯，阿绫把重点先给你放在这里。"
