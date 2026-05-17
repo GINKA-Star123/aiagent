@@ -54,6 +54,33 @@ class PersonaGuard:
             reasons=reasons,
         )
 
+    def normalize_reply(self, text: str) -> str:
+        """Return the normalized reply text expected by PersonaRuntime."""
+        return self.normalize(text).text
+
+    def validate_reply(self, text: str, config=None) -> list[str]:
+        """Return lightweight persona-safety issues for downstream metadata.
+
+        `config` is accepted for compatibility with PersonaRuntime and future
+        persona-specific rules. The current checks stay conservative so they do
+        not block normal replies.
+        """
+        result = text or ""
+        issues: list[str] = []
+
+        for phrase in self.forbidden_phrases:
+            if phrase in result:
+                issues.append(f"forbidden_phrase:{phrase}")
+
+        for phrase in self.cold_phrases:
+            if phrase in result:
+                issues.append(f"cold_phrase:{phrase}")
+
+        if not result.strip():
+            issues.append("empty_reply")
+
+        return issues
+
     def _trim_repeated_prefix(self, text: str) -> str:
         prefixes = ["阿绫觉得，", "阿绫认为，", "嗯，"]
         for prefix in prefixes:

@@ -326,6 +326,22 @@ class RuntimeDiagnostics:
                 action="配置 VISION_MODEL。",
             )
 
+        if provider == "lmstudio":
+            tcp = self._check_url_tcp(settings.lmstudio_base_url, timeout=0.4)
+            return DiagnosticCheck(
+                name="vision_config",
+                status="ok" if tcp["reachable"] else "degraded",
+                summary="Vision LM Studio provider configured." if tcp["reachable"] else "Vision LM Studio provider configured but endpoint is not reachable.",
+                details={
+                    "provider": settings.vision_provider,
+                    "model": settings.vision_model,
+                    "base_url": settings.lmstudio_base_url,
+                    "timeout_seconds": settings.vision_timeout_seconds,
+                    "tcp": tcp,
+                },
+                action="" if tcp["reachable"] else "确认 LM Studio 服务已启动，并确认 LMSTUDIO_BASE_URL 正确。",
+            )
+
         api_key = self._resolve_env_secret(settings.vision_api_key_env)
         if provider in {"openai", "siliconflow"} and not self._has_secret(api_key):
             return DiagnosticCheck(

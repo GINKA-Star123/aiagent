@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import json
 import logging
-import traceback
 
-from fastapi import APIRouter, File, Form, Response, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile
 
+from apps.api.response_utils import error_response, ok_response
 from apps.core.runtime_registry import get_runtime, get_runtime_error
 
 router = APIRouter()
@@ -23,7 +22,7 @@ def multimodal_chat(
         runtime = get_runtime()
     except Exception as exc:
         logger.exception("Runtime init failed in /chat/multimodal: %s", exc)
-        return _error_response(
+        return error_response(
             stage="runtime_init",
             exc=exc,
             status_code=500,
@@ -41,52 +40,22 @@ def multimodal_chat(
 
         packet = output.packet
 
-        return _json_response(
-            {
-                "ok": True,
-                "output_id": output.output_id,
-                "reply": packet.reply_text,
-                "base_reply_text": packet.base_reply_text,
-                "emotion": packet.emotion,
-                "motion": packet.motion,
-                "expression": packet.expression,
-                "audio_path": packet.audio_path,
-                "audio_url": packet.audio_url,
-                "audio_segments": packet.audio_segments,
-                "audio_segment_urls": packet.audio_segment_urls,
-                "audio_segment_texts": packet.audio_segment_texts,
-                "live2d_command_path": packet.live2d_command_path,
-                "live2d": packet.live2d,
-                "metadata": packet.metadata,
-            }
+        return ok_response(
+            output_id=output.output_id,
+            reply=packet.reply_text,
+            base_reply_text=packet.base_reply_text,
+            emotion=packet.emotion,
+            motion=packet.motion,
+            expression=packet.expression,
+            audio_path=packet.audio_path,
+            audio_url=packet.audio_url,
+            audio_segments=packet.audio_segments,
+            audio_segment_urls=packet.audio_segment_urls,
+            audio_segment_texts=packet.audio_segment_texts,
+            live2d_command_path=packet.live2d_command_path,
+            live2d=packet.live2d,
+            metadata=packet.metadata,
         )
     except Exception as exc:
         logger.exception("Multimodal chat failed: %s", exc)
-        return _error_response(stage="chat", exc=exc, status_code=500)
-
-
-def _json_response(body: dict, status_code: int = 200) -> Response:
-    return Response(
-        content=json.dumps(body, ensure_ascii=False, default=str),
-        media_type="application/json; charset=utf-8",
-        status_code=status_code,
-    )
-
-
-def _error_response(
-    stage: str,
-    exc: Exception,
-    status_code: int = 500,
-    runtime_error: str | None = None,
-) -> Response:
-    body = {
-        "ok": False,
-        "stage": stage,
-        "error": str(exc),
-        "traceback": traceback.format_exc(),
-    }
-
-    if runtime_error:
-        body["runtime_error"] = runtime_error
-
-    return _json_response(body, status_code=status_code)
+        return error_response(stage="chat", exc=exc, status_code=500)

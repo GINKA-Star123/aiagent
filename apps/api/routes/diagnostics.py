@@ -1,36 +1,21 @@
 from __future__ import annotations
 
-import json
-import traceback
-
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 
 from aiagent.diagnostics.runtime_diagnostics import RuntimeDiagnostics
+from apps.api.response_utils import error_response, json_response
 
 router = APIRouter()
 
 
 @router.get("/runtime/diagnostics")
-def runtime_diagnostics() -> Response:
+def runtime_diagnostics():
     try:
         report = RuntimeDiagnostics().run()
-        return _json_response(report.model_dump())
+        return json_response(report.model_dump())
     except Exception as exc:
-        return _json_response(
-            {
-                "ok": False,
-                "status": "failed",
-                "stage": "runtime_diagnostics",
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-            },
+        return error_response(
+            stage="runtime_diagnostics",
+            exc=exc,
             status_code=500,
         )
-
-
-def _json_response(body: dict, status_code: int = 200) -> Response:
-    return Response(
-        content=json.dumps(body, ensure_ascii=False, default=str),
-        media_type="application/json; charset=utf-8",
-        status_code=status_code,
-    )

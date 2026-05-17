@@ -5,22 +5,25 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from apps.api.middleware import request_logging_middleware
 from apps.api.routes.audio import router as audio_router
 from apps.api.routes.chat import router as chat_router
 from apps.api.routes.control import router as control_router
+from apps.api.routes.diagnostics import router as diagnostics_router
 from apps.api.routes.health import router as health_router
 from apps.api.routes.knowledge import router as knowledge_router
+from apps.api.routes.live2d import router as live2d_router
 from apps.api.routes.memory import router as memory_router
+from apps.api.routes.multimodal_chat import router as multimodal_chat_router
 from apps.api.routes.vision import router as vision_router
 from apps.api.routes.voice import router as voice_router
-from apps.api.routes.multimodal_chat import router as multimodal_chat_router
-from apps.api.routes.live2d import router as live2d_router
-from apps.api.routes.diagnostics import router as diagnostics_router
 from config.settings import settings
 
 logger = logging.getLogger("aiagent.api")
 
 app = FastAPI(title="aiagent api", version="1.0.0")
+
+app.middleware("http")(request_logging_middleware)
 
 cors_origins = [
     item.strip()

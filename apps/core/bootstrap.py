@@ -137,7 +137,10 @@ def build_runtime() -> CoreRuntime:
         min_cosine_score=0.42,
         require_relevance=True,
     )
-    vision_api_key = _resolve_env_secret(settings.vision_api_key_env)
+    if settings.vision_provider.strip().lower() == "lmstudio":
+        vision_api_key = settings.lmstudio_api_key or "lm-studio"
+    else:
+        vision_api_key = _resolve_env_secret(settings.vision_api_key_env)
 
     vision_service = VisionService(
         image_store=ImageStore(
@@ -159,6 +162,9 @@ def build_runtime() -> CoreRuntime:
         model=settings.vision_model,
         api_key=vision_api_key,
         base_url=(
+            settings.lmstudio_base_url
+            if settings.vision_provider.strip().lower() == "lmstudio"
+            else
             settings.vision_base_url
             or (
                 settings.siliconflow_base_url
@@ -292,6 +298,7 @@ def build_runtime() -> CoreRuntime:
         live2d_dispatcher=live2d_dispatcher, # type: ignore
         motion_policy=MotionPolicy(),
         audio_playback_dispatcher=audio_playback_dispatcher,
+        enable_local_audio_playback=settings.enable_local_audio_playback,
     )
 
     if settings.enable_mock_asr or settings.asr_provider == "mock":

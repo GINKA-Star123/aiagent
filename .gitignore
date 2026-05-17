@@ -10,6 +10,9 @@ data/cache/
 data/logs/
 data/
 scripts/
+third_party/
+apps/flutter_client/
+
 
 # Large model files
 data/models/

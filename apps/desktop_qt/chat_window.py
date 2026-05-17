@@ -272,33 +272,37 @@ class ChatWindow(QMainWindow):
         self.startup_check_button.clicked.connect(self.run_startup_check)
         control_grid.addWidget(self.startup_check_button, 0, 0)
 
+        self.diagnostics_button = QPushButton("运行诊断")
+        self.diagnostics_button.clicked.connect(self.run_runtime_diagnostics)
+        control_grid.addWidget(self.diagnostics_button, 0, 1)
+
         self.refresh_button = QPushButton("刷新状态")
         self.refresh_button.clicked.connect(self.refresh_state)
-        control_grid.addWidget(self.refresh_button, 0, 1)
+        control_grid.addWidget(self.refresh_button, 1, 0)
 
         self.pause_button = QPushButton("暂停对话")
         self.pause_button.clicked.connect(self.pause_dialogue)
-        control_grid.addWidget(self.pause_button, 1, 0)
+        control_grid.addWidget(self.pause_button, 1, 1)
 
         self.resume_button = QPushButton("恢复对话")
         self.resume_button.clicked.connect(self.resume_dialogue)
-        control_grid.addWidget(self.resume_button, 1, 1)
+        control_grid.addWidget(self.resume_button, 2, 0)
 
         self.interrupt_button = QPushButton("打断播放")
         self.interrupt_button.clicked.connect(self.interrupt_speaking)
-        control_grid.addWidget(self.interrupt_button, 2, 0)
+        control_grid.addWidget(self.interrupt_button, 2, 1)
 
         self.reset_context_button = QPushButton("重置上下文")
         self.reset_context_button.clicked.connect(self.reset_context)
-        control_grid.addWidget(self.reset_context_button, 2, 1)
+        control_grid.addWidget(self.reset_context_button, 3, 0)
 
         self.clear_memory_button = QPushButton("清空记忆")
         self.clear_memory_button.clicked.connect(self.clear_memory)
-        control_grid.addWidget(self.clear_memory_button, 3, 0)
+        control_grid.addWidget(self.clear_memory_button, 3, 1)
 
         self.clear_chat_button = QPushButton("清空聊天")
         self.clear_chat_button.clicked.connect(self.clear_chat)
-        control_grid.addWidget(self.clear_chat_button, 3, 1)
+        control_grid.addWidget(self.clear_chat_button, 4, 0, 1, 2)
 
         control_card.layout().addLayout(control_grid)
         tools_layout.addWidget(control_card)
@@ -427,6 +431,7 @@ class ChatWindow(QMainWindow):
             self.search_memory_button,
             self.memory_stats_button,
             self.startup_check_button,
+            self.diagnostics_button,
             self.select_image_button,
         ]
         for button in buttons:
@@ -503,7 +508,9 @@ class ChatWindow(QMainWindow):
         elif task_name == "refresh":
             self._on_json_result("状态已刷新。", dict(result), self.state_view)
         elif task_name == "startup_check":
-            self._on_json_result("启动自检完成。", dict(result), self.state_view)
+            self._on_startup_check_finished(dict(result))
+        elif task_name == "runtime_diagnostics":
+            self._on_runtime_diagnostics_finished(dict(result))
         elif task_name == "pause":
             self._on_json_result("已暂停对话。", dict(result), self.state_view)
         elif task_name == "resume":
@@ -628,6 +635,11 @@ class ChatWindow(QMainWindow):
         self._set_busy(True)
         self._start_worker("startup_check", lambda: self.api_client.run_startup_check(self.user_id))
 
+    def run_runtime_diagnostics(self) -> None:
+        self._set_status("正在运行诊断...")
+        self._set_busy(True)
+        self._start_worker("runtime_diagnostics", self.api_client.get_runtime_diagnostics)
+
     def refresh_state(self) -> None:
         self._set_status("正在刷新状态...")
         self._set_busy(True)
@@ -727,6 +739,60 @@ class ChatWindow(QMainWindow):
     def _on_json_result(self, message: str, data: dict, target: QTextEdit) -> None:
         target.setPlainText(self.api_client.pretty_json(data))
         self._append_system_message(message)
+
+    def _on_startup_check_finished(self, data: dict) -> None:
+        self.state_view.setPlainText(self.api_client.pretty_json(data))
+
+        diagnostics = data.get("checks", {}).get("runtime_diagnostics", {})
+        if isinstance(diagnostics, dict) and diagnostics:
+            self._append_system_message(self._format_diagnostics_summary(diagnostics))
+        else:
+            self._append_system_message("启动自检完成。")
+
+    def _on_runtime_diagnostics_finished(self, data: dict) -> None:
+        self.state_view.setPlainText(self.api_client.pretty_json(data))
+        self._append_system_message(self._format_diagnostics_summary(data))
+
+    def _format_diagnostics_summary(self, data: dict) -> str:
+        status = str(data.get("status", "unknown"))
+        summary = data.get("summary", {})
+        checks = data.get("checks", [])
+
+        ok_count = summary.get("ok", 0) if isinstance(summary, dict) else 0
+        degraded_count = summary.get("degraded", 0) if isinstance(summary, dict) else 0
+        failed_count = summary.get("failed", 0) if isinstance(summary, dict) else 0
+        skipped_count = summary.get("skipped", 0) if isinstance(summary, dict) else 0
+
+        lines = [
+            "运行诊断完成。",
+            f"整体状态：{status}",
+            f"ok={ok_count} degraded={degraded_count} failed={failed_count} skipped={skipped_count}",
+        ]
+
+        non_ok = []
+        if isinstance(checks, list):
+            non_ok = [
+                item
+                for item in checks
+                if isinstance(item, dict) and str(item.get("status", "")) != "ok"
+            ]
+
+        if non_ok:
+            lines.append("需要关注：")
+            for item in non_ok[:8]:
+                name = str(item.get("name", "unknown"))
+                item_status = str(item.get("status", "unknown"))
+                item_summary = str(item.get("summary", ""))
+                action = str(item.get("action", "")).strip()
+                line = f"- {name}: {item_status}，{item_summary}"
+                if action:
+                    line = f"{line}；建议：{action}"
+                lines.append(line)
+
+            if len(non_ok) > 8:
+                lines.append(f"... 还有 {len(non_ok) - 8} 项，请查看 Runtime Snapshot。")
+
+        return "\n".join(lines)
 
     def _update_detail_view(self, data: dict) -> None:
         self.detail_view.setPlainText(self.api_client.pretty_json(data))

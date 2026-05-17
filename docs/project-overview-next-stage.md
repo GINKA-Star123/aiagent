@@ -1,172 +1,348 @@
-# 项目总览与下一阶段计划
+# 项目总览与下一阶段方向
 
-## 当前架构总览
+本文档记录当前项目结构、阶段完成情况、工程边界和下一阶段建议。
 
-项目当前已经形成一个多模态 AI Agent Runtime，主要分为以下层级。
+## 当前项目定位
 
-### 1. 运行时与 API 层
+本项目已经形成一个多模态 AI Agent Runtime，包含：
 
-- `apps/core/bootstrap.py`：完整运行时装配入口，负责把 LLM、RAG、记忆、视觉、TTS、ASR、Live2D、输出广播等组件组装起来。
-- `apps/core/runtime.py`：API 层调用的核心门面，提供 chat、voice、vision、memory、knowledge、multimodal 等入口。
-- `apps/api/http_server.py`：FastAPI 应用注册入口。
-- `apps/api/routes/*`：HTTP 边界层。这里应保持轻量，只做请求解析、错误包装和调用 runtime 或集成服务。
+- 文本聊天
+- Persona 人格系统
+- RAG 知识库
+- 长期记忆
+- 视觉识别
+- 多模态聊天
+- 语音识别与语音合成
+- Live2D payload 与模型检查
+- Qt 桌面调试前端
+- API 诊断、测试与可观测性基础设施
 
-### 2. 主 Agent 图流程
+## 核心分层
 
-- `aiagent/graphs/main_graph.py`：主流程图，负责串联上下文准备、视觉图、记忆检索、状态分析、规划、RAG、LLM、记忆写入和最终 `ResponsePacket` 构建。
-- `aiagent/graphs/state_graph.py`、`planner_graph.py`、`rag_graph.py`、`llm_graph.py`、`memory_graph.py`、`vision_graph.py`：各自负责独立子流程。
-- `aiagent/graphs/graph_model.py`：图流程共享状态和结果模型。
+### API 层
 
-### 3. Persona 人格系统
+主要文件：
 
-- `aiagent/persona/persona_loader.py`：读取 persona YAML。
-- `aiagent/persona/persona_manager.py`：管理当前人格。
-- `aiagent/persona/persona_runtime.py`：构建运行时人格上下文。
-- `aiagent/persona/persona_prompts.py`：人格提示词生成。
-- `aiagent/persona/persona_guard.py`：回复归一化和人格防漂移。
-- `data/persona/yzl/persona.yaml`：乐正绫人格配置。
-- `scripts/generate_yzl_persona_dataset.py`：LoRA 数据集生成脚本。注意它应和 runtime persona 逻辑保持分离。
+```text
+apps/api/http_server.py
+apps/api/routes/*
+apps/api/response_utils.py
+apps/api/middleware.py
+apps/api/request_context.py
+```
 
-### 4. 视觉与识图系统
+职责：
 
-- `aiagent/vision/image_store.py`：保存上传图片。
-- `aiagent/vision/character_registry.py`：加载角色图库配置。
-- `aiagent/vision/character_retriever.py`：基于本地角色图库进行候选召回。
-- `aiagent/services/vision_service.py`：整合本地角色召回和模型视觉分析。
-- `aiagent/graphs/vision_graph.py`：把识图结果转换成聊天上下文、记忆提示和 Live2D 建议。
-- `apps/api/routes/vision.py`、`apps/api/routes/multimodal_chat.py`：提供直接识图和多模态聊天入口。
+- 注册 FastAPI 应用
+- 解析 HTTP 请求
+- 调用 runtime 或集成服务
+- 返回统一 JSON 响应
+- 记录 request_id 与请求耗时
 
-### 5. RAG 知识库系统
+新增 route 时应保持轻量，不要把业务流程写进 route。
 
-- `aiagent/knowledge/document_loader.py`：加载知识文档。
-- `aiagent/knowledge/retriever.py`：BM25 与向量召回。
-- `aiagent/knowledge/vector_store.py`：向量库与 embedding 适配。
-- `aiagent/knowledge/reranker.py`：简单重排。
-- `aiagent/knowledge/rag_pipeline.py`：索引构建、检索、上下文格式化和 rebuild 状态。
-- `aiagent/graphs/rag_graph.py`：决定何时注入知识上下文。
-- `apps/api/routes/knowledge.py`：知识库 stats、rebuild、search API。
+### Runtime 层
 
-### 6. 长期记忆系统
+主要文件：
 
-- `aiagent/memory/mem0_memory.py`：Mem0、Qdrant、图记忆适配。
-- `aiagent/graphs/memory_graph.py`：记忆检索和写入流程。
-- `aiagent/services/memory_policy_llm_service.py`：判断一轮对话是否值得写入长期记忆。
-- `apps/api/routes/memory.py`：记忆 stats、search、clear API。
+```text
+apps/core/bootstrap.py
+apps/core/runtime.py
+apps/core/runtime_registry.py
+```
 
-### 7. 语音与音频系统
+职责：
 
-- `integrations/asr/*`：麦克风、VAD、mock ASR、Faster Whisper ASR。
-- `aiagent/perception/*`：输入源归一化和语音回合管理。
-- `integrations/tts/*`：GPT-SoVITS、IndexTTS2、VoxCPM、mock TTS 和文本清理。
-- `aiagent/expression/tts_dispatcher.py`：TTS 调度。
-- `aiagent/expression/audio_playback_dispatcher.py`：音频播放调度。
-- `apps/api/routes/voice.py`、`audio.py`：语音识别、语音状态和音频访问 API。
+- 组装 LLM、RAG、Memory、Vision、TTS、ASR、Live2D 等组件
+- 向 API 层提供稳定门面
+- 管理运行时单例和初始化错误
 
-### 8. Live2D 系统
+### Graph 层
 
-- `aiagent/live2d/*`：Live2D 领域层，负责角色 profile、动作映射、表情映射、场景映射和 payload 构建。
-- `aiagent/expression/live2d_payload_dispatcher.py`：从 `ResponsePacket` 生成 Live2D 命令文件。
-- `integrations/live2d/*`：集成层，负责文件客户端、Python Live2D runtime 检查、模型扫描、profile 生成、模型会话、headless renderer 和 Qt OpenGL 控件。
-- `apps/api/routes/live2d.py`：Live2D stats、preview、runtime inspect、model scan、profile generate API。
-- `apps/desktop_qt/live2d_view_panel.py`、`integrations/live2d/qt_live2d_widget.py`：Qt 前端 Live2D 面板。
+主要文件：
 
-### 9. Qt 前端
+```text
+aiagent/graphs/main_graph.py
+aiagent/graphs/state_graph.py
+aiagent/graphs/planner_graph.py
+aiagent/graphs/rag_graph.py
+aiagent/graphs/memory_graph.py
+aiagent/graphs/vision_graph.py
+aiagent/graphs/llm_graph.py
+aiagent/graphs/graph_model.py
+```
 
-- `apps/desktop_qt/chat_window.py`：当前主调试前端。已经包含聊天、图片上传、语音录制、记忆显示、知识库控制、API Detail、Live2D 面板。
-- 新增 Qt 功能应优先做成 panel/widget 并插入该窗口。
+职责：
 
-### 10. Web 前端
+- 串联一次完整对话流程
+- 状态分析
+- 回复规划
+- RAG 检索
+- 记忆检索与写入
+- 视觉结果转聊天上下文
+- LLM 回复
 
-- `apps/web`：Next.js 前端骨架，目前主要是 README 和基础页面。
-- 当前主力前端仍是 Qt。
+### Persona 层
 
-## 当前阶段状态
+主要文件：
 
-- 第一阶段：核心聊天、RAG、记忆、Persona 基础能力已经基本成型。
-- 第二阶段：识图、多模态聊天、角色图库召回、VisionGraph 接入已经完成。
-- 第三阶段：Live2D payload、Python runtime 检查、Qt 面板、模型资源工具已经完成。真实 Cubism 模型资源尚未放入。
+```text
+aiagent/persona/*
+domain/persona/*
+data/persona/*
+```
 
-## 当前关键缺口
+职责：
 
-1. 真实 Live2D 模型资源缺失。
-   - 预期路径：`data/live2d/characters/yzl/model/yzl.model3.json`
-   - 当前 `scripts/test_phase3_live2d.ps1` 返回 `model3_json_missing` 是正确状态，不是代码错误。
+- 加载 persona YAML
+- 构建人格运行时上下文
+- 生成人格 prompt
+- 做回复风格守护和归一化
 
-2. 工作区存在未提交改动。
-   - 当前 `git status` 显示 persona、config、bootstrap、Live2D 相关文件仍有改动。
-   - 大改前建议先确认这些改动是否预期，并做一次提交或快照。
+### Vision 层
 
-3. 运行缓存较多。
-   - `data/cache/mock_live2d/*.json`、录音、上传图片、知识库缓存等是运行产物。
-   - 后续不要把缓存文件当成源码依赖。
+主要文件：
 
-4. `domain/*` 多数是早期占位。
-   - 当前有效业务主要在 `aiagent/*`、`apps/*`、`integrations/*`。
-   - 不建议把新功能写进 `domain/*`，除非明确要做领域层重构。
+```text
+aiagent/services/vision_service.py
+aiagent/vision/image_store.py
+aiagent/vision/character_registry.py
+aiagent/vision/character_retriever.py
+aiagent/graphs/vision_graph.py
+apps/api/routes/vision.py
+apps/api/routes/multimodal_chat.py
+```
 
-## 下一阶段建议
+职责：
 
-建议第四阶段先做稳定化和工程收敛，不建议立即继续开大功能。
+- 保存上传图片
+- 加载角色图库
+- 构建角色图像索引
+- 调用视觉模型分析图片
+- 将图片理解结果接入聊天流程
 
-### 优先级 1：运行时稳定性
+### RAG 层
 
-- 做统一启动诊断，检查 Qdrant、RAG embedding、memory provider、vision provider、TTS、ASR、Live2D 模型资源。
-- 可选子系统不可用时应明确降级，而不是直接 500。
-- 在 `config/settings.py` 中补 provider 组合校验。
+主要文件：
 
-### 优先级 2：测试收敛
+```text
+aiagent/knowledge/*
+aiagent/graphs/rag_graph.py
+apps/api/routes/knowledge.py
+```
 
-应补以下测试：
+职责：
 
-- `/chat`
-- `/chat/multimodal`
-- `/vision/analyze`
-- `/live2d/preview`
-- `/knowledge/rebuild/status`
-- `PersonaGuard`
-- `Live2DPayloadBuilder`
-- `VisionService` mock 与本地召回路径
-- `RAGPipeline` rebuild/status
+- 文档加载
+- 索引构建
+- BM25 和向量混合检索
+- 简单 rerank
+- 上下文格式化
+- rebuild/status API
 
-### 优先级 3：真实 Live2D 模型接入
+### Memory 层
 
-接入顺序：
+主要文件：
 
-1. 把真实 Cubism 资源放入 `data/live2d/characters/yzl/model`。
-2. 运行 `scripts/scan_live2d_models.ps1`。
-3. 使用 `scripts/generate_live2d_profile.ps1` 生成或更新 `profile.yaml`。
-4. 运行 `scripts/test_phase3_live2d.ps1`。
-5. 打开 Qt 前端验证模型渲染和 payload 驱动。
+```text
+aiagent/memory/mem0_memory.py
+aiagent/graphs/memory_graph.py
+aiagent/services/memory_policy_llm_service.py
+apps/api/routes/memory.py
+```
 
-### 优先级 4：Qt 前端整理
+职责：
 
-- 把 API Detail、Memory Status、Live2D Payload、Runtime Snapshot 改成 tabs。
-- 把图片上传和 Live2D 显示保持在同一调试工作流里。
-- 右侧面板不要继续无限纵向堆叠。
+- 长期记忆存储
+- 记忆检索
+- 记忆写入策略判断
+- Qdrant 和可选图记忆适配
 
-### 优先级 5：训练数据工具规范
+### Voice / Audio 层
 
-- 保持 `scripts/generate_yzl_persona_dataset.py` 作为唯一数据集生成入口。
-- 增加 dataset lint：
-  - 重复 prompt 检查
-  - 禁词检查
-  - 核心/日常/功能比例检查
-  - 过长样本检查
-  - 功能问答是否先给正确答案
+主要文件：
 
-## 后续开发入口规则
+```text
+aiagent/perception/*
+integrations/asr/*
+integrations/audio/*
+integrations/tts/*
+aiagent/expression/tts_dispatcher.py
+aiagent/expression/audio_playback_dispatcher.py
+apps/api/routes/voice.py
+apps/api/routes/audio.py
+```
 
-- 新 HTTP 接口：写在 `apps/api/routes/*`，保持薄封装。
-- 新 runtime 能力：写在 `apps/core/runtime.py`，必要时在 `apps/core/bootstrap.py` 装配。
-- 新图流程行为：写在 `aiagent/graphs/*`。
-- 新 LLM prompt 或归一化：写在 `aiagent/cognition/*` 或 `aiagent/persona/*`。
-- 新识图能力：写在 `aiagent/services/vision_service.py`、`aiagent/vision/*` 或 `aiagent/graphs/vision_graph.py`。
-- 新记忆策略：写在 `aiagent/graphs/memory_graph.py` 或 `aiagent/services/memory_policy_llm_service.py`。
-- 新 Live2D 能力：
-  - 领域映射：`aiagent/live2d/*`
-  - 输出调度：`aiagent/expression/live2d_payload_dispatcher.py`
-  - Python/Qt/文件集成：`integrations/live2d/*`
-  - Qt UI：`apps/desktop_qt/*`
-- 新 Qt UI：优先做 panel/widget 并接入 `apps/desktop_qt/chat_window.py`。
+职责：
 
-如果一个新文件无法落到上述入口之一，通常说明它在重复已有功能。
+- 麦克风录音
+- VAD
+- ASR
+- TTS
+- 音频播放
+- 语音会话控制
+
+### Live2D 层
+
+主要文件：
+
+```text
+aiagent/live2d/*
+aiagent/expression/live2d_payload_dispatcher.py
+aiagent/expression/mock_live2d_dispatcher.py
+integrations/live2d/*
+apps/api/routes/live2d.py
+apps/desktop_qt/live2d_view_panel.py
+```
+
+职责：
+
+- Live2D profile 加载
+- 表情、动作、场景映射
+- payload 构建
+- payload 文件输出
+- Python Live2D runtime 检查
+- 模型扫描与 profile 生成
+- Qt Live2D 面板
+
+### Qt 前端
+
+主要文件：
+
+```text
+apps/desktop_qt/chat_window.py
+apps/desktop_qt/api_client.py
+apps/desktop_qt/live2d_view_panel.py
+apps/desktop_qt/main.py
+```
+
+职责：
+
+- 文本聊天
+- 图片上传
+- 语音录制
+- 知识库调试
+- 记忆调试
+- Live2D 调试
+- 运行时诊断
+
+新增 Qt 功能应优先作为 panel/widget 接入 `ChatWindow`，不要另起一套主窗口。
+
+## 阶段状态
+
+### 第一阶段：核心对话能力
+
+已完成：
+
+- Runtime 基础装配
+- 主聊天接口
+- Persona 基础
+- RAG 基础
+- Memory 基础
+- Qt 基础调试前端
+
+### 第二阶段：视觉与多模态
+
+已完成：
+
+- 图片上传
+- 视觉分析
+- 角色图库识别
+- VisionGraph
+- 多模态聊天接口
+- Qt 图片上传
+
+### 第三阶段：Live2D
+
+已完成：
+
+- Live2D payload builder
+- 表情、动作、场景映射
+- Live2D API
+- Python runtime 检查
+- 模型扫描
+- profile 生成
+- Qt Live2D 面板
+
+当前真实 Live2D 模型资源仍需补充：
+
+```text
+data/live2d/characters/yzl/model/yzl.model3.json
+```
+
+### 第四阶段：稳定化与工程收敛
+
+已完成：
+
+- `/runtime/diagnostics`
+- `scripts/test_runtime_diagnostics.ps1`
+- `scripts/test_all.ps1`
+- `scripts/test_phase4_closure.ps1`
+- `apps/api/response_utils.py`
+- `apps/api/middleware.py`
+- `apps/api/request_context.py`
+- `docs/config-reference.md`
+- `docs/api-observability.md`
+- `docs/phase4-stabilization-closure.md`
+- Qt “运行诊断”入口
+
+第四阶段目标已经达成。
+
+## 当前优先风险
+
+1. 源码中仍有历史乱码，需要单独清理。
+2. `__pycache__` 存在权限问题，影响 `compileall`。
+3. 真实 Live2D 模型资源尚未放入。
+4. 部分 route 仍可继续接入统一响应工具，例如 knowledge、memory、voice、live2d。
+5. Graph 内部阶段耗时还没有细粒度统计。
+
+## 第五阶段建议
+
+第五阶段建议命名为：
+
+```text
+编码清理、真实资源接入与测试固化
+```
+
+建议顺序：
+
+1. 编码清理
+   - 修复 `config/defaults.py`
+   - 修复 `config/settings.py`
+   - 修复 `apps/api/routes/live2d.py`
+   - 确认所有中文源码为 UTF-8
+
+2. 真实资源接入
+   - 放入真实 Live2D 模型
+   - 修正 `profile.yaml`
+   - 跑 Live2D runtime inspect/load
+
+3. 测试固化
+   - 把关键脚本纳入统一测试
+   - 增加 Python unit tests
+   - 覆盖 diagnostics、response_utils、Live2D payload、Vision mock path
+
+4. Route 收敛
+   - knowledge、memory、voice、live2d 继续接入 `response_utils`
+   - 统一错误结构
+
+5. Graph 细粒度可观测性
+   - 给 state/planner/rag/memory/vision/llm 阶段记录耗时
+   - 将关键耗时写入 metadata
+
+6. Qt 体验整理
+   - 右侧面板改 tabs
+   - Runtime Snapshot、API Detail、Memory Status、Live2D Payload 分区更清晰
+   - 显示最近 request_id 和 response time
+
+## 后续开发原则
+
+1. 新功能先查已有模块，避免重复写同类能力。
+2. API route 保持薄封装。
+3. 业务流程优先放 runtime 或 graph。
+4. 外部服务适配放 integrations。
+5. 领域映射放 aiagent 对应模块。
+6. Qt 新功能优先接入现有主窗口。
+7. 新增接口必须有测试脚本或单元测试。
+8. 新增配置必须同步更新 `docs/config-reference.md`。
+9. 新增可观测性约定必须同步更新 `docs/api-observability.md`。

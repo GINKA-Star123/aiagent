@@ -59,6 +59,7 @@ class Settings(BaseSettings):
 
     tts_provider: str = Field(default="mock", alias="TTS_PROVIDER")
     enable_mock_tts: bool = Field(default=True, alias="ENABLE_MOCK_TTS")
+    enable_local_audio_playback: bool = Field(default=False, alias="ENABLE_LOCAL_AUDIO_PLAYBACK")
     tts_timeout_seconds: float = Field(default=60.0, alias="TTS_TIMEOUT_SECONDS")
 
     gpt_sovits_base_url: str = Field(default="http://127.0.0.1:9880", alias="GPT_SOVITS_BASE_URL")

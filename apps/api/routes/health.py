@@ -1,10 +1,10 @@
-"""Health route placeholder."""
-
 from fastapi import APIRouter
+
+from apps.api.response_utils import ok_response
 
 router = APIRouter()
 
+
 @router.get("/health")
 def health_check():
-    """Health check endpoint."""
-    return {"status": "ok"}
+    return ok_response(status="ok")

@@ -109,7 +109,7 @@ class VisionService:
         if self.provider in {"", "mock"}:
             return self._mock_model_result(candidates)
 
-        if self.provider in {"openai", "siliconflow"}:
+        if self.provider in {"openai", "siliconflow", "lmstudio"}:
             return self._openai_compatible_vision(
                 stored=stored,
                 candidates=candidates,
@@ -124,7 +124,7 @@ class VisionService:
         candidates: list[CharacterCandidate],
         user_prompt: str,
     ) -> dict[str, Any]:
-        if not self.api_key:
+        if self.provider != "lmstudio" and not self.api_key:
             raise RuntimeError("Vision API key is not configured.")
 
         if not self.base_url:
@@ -212,7 +212,9 @@ B. 日常图片：
 """.strip()
 
         url = f"{self.base_url}/chat/completions"
-        headers = {"Authorization": f"Bearer {self.api_key}"}
+        headers = {
+            "Authorization": f"Bearer {self.api_key or 'lm-studio'}",
+        }
         payload = {
             "model": self.model,
             "temperature": 0.1,

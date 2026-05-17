@@ -22,7 +22,8 @@ class Live2DPayloadDispatcher:
 
         character_id = str(character.get("character_id") or "yzl")
         background_id = str(scene.get("background_id") or "")
-        if self.client is isinstance(self.client,FileLive2DClient):
+        command_path = ""
+        if isinstance(self.client, FileLive2DClient):
             command_path = self.client.dispatch(
                 character_id=character_id,
                 emotion=str(packet.emotion or "neutral"),

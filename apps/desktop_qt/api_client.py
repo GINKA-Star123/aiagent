@@ -161,6 +161,9 @@ class APIClient:
     def get_knowledge_rebuild_status(self) -> dict[str, Any]:
         return self._request("GET", "/knowledge/rebuild/status")
 
+    def get_runtime_diagnostics(self) -> dict[str, Any]:
+        return self._request("GET", "/runtime/diagnostics")
+
     def search_knowledge(self, query: str, top_k: int = 4) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -185,6 +188,7 @@ class APIClient:
     def get_runtime_snapshot(self, user_id: str) -> dict[str, Any]:
         return {
             "health": self.get_health(),
+            "diagnostics": self.get_runtime_diagnostics(),
             "control": self.get_control_status(),
             "voice": self.get_voice_state(),
             "memory": self.get_user_memory(user_id),
@@ -196,6 +200,7 @@ class APIClient:
     def run_startup_check(self, user_id: str) -> dict[str, Any]:
         checks: dict[str, Any] = {
             "backend_health": {"ok": False},
+            "runtime_diagnostics": {"ok": False},
             "control_status": {"ok": False},
             "voice_state": {"ok": False},
             "memory_stats": {"ok": False},
@@ -207,6 +212,7 @@ class APIClient:
 
         for name, fn in {
             "backend_health": self.get_health,
+            "runtime_diagnostics": self.get_runtime_diagnostics,
             "control_status": self.get_control_status,
             "voice_state": self.get_voice_state,
             "memory_stats": lambda: self.get_memory_stats(user_id),
@@ -215,6 +221,8 @@ class APIClient:
         }.items():
             try:
                 checks[name] = fn()
+                if name == "runtime_diagnostics" and checks[name].get("status") == "failed":
+                    overall_ok = False
             except Exception as exc:
                 overall_ok = False
                 checks[name] = {"ok": False, "error": str(exc)}
