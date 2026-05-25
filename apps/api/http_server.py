@@ -25,6 +25,8 @@ from apps.api.routes.memory import router as memory_router
 from apps.api.routes.multimodal_chat import router as multimodal_chat_router
 from apps.api.routes.vision import router as vision_router
 from apps.api.routes.voice import router as voice_router
+from apps.api.routes.voice_realtime import router as voice_realtime_router
+from apps.api.routes.session import router as session_router
 from config.settings import settings
 
 logger = logging.getLogger("aiagent.api")
@@ -70,8 +72,10 @@ app.include_router(memory_router)
 app.include_router(knowledge_router)
 app.include_router(vision_router)
 app.include_router(voice_router)
+app.include_router(voice_realtime_router)
 app.include_router(audio_router)
 app.include_router(live2d_router)
+app.include_router(session_router)
 
 
 @app.on_event("startup")
