@@ -3,11 +3,26 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from typing import Any
+import time
+
 
 import httpx
 
 from cloud.config import cloud_settings
+from apps.api.metrics_store import metrics_store
+from cloud.circuit_breaker import CircuitBreaker
 
+
+_llm_breaker = CircuitBreaker(name="llm", failure_threshold=3, recovery_seconds=30)
+_tts_breaker = CircuitBreaker(name="tts", failure_threshold=3, recovery_seconds=30)
+_asr_breaker = CircuitBreaker(name="asr", failure_threshold=3, recovery_seconds=30)
+
+def _breaker_for(name:str) ->CircuitBreaker:
+    if name.strip().lower() == "tts":
+        return _tts_breaker
+    if name.strip().lower() == "llm":
+        return _llm_breaker
+    return _asr_breaker
 
 @dataclass(frozen=True)
 class GpuEndpointHealth:
@@ -16,6 +31,9 @@ class GpuEndpointHealth:
     ok: bool
     status_code: int | None = None
     error: str = ""
+
+class GpuCircuitOpenError(RuntimeError):
+    pass
 
 
 def _join_url(base_url: str, path: str) -> str:
@@ -67,6 +85,7 @@ class GpuServiceClient:
             "llm": llm.__dict__,
             "tts": tts.__dict__,
             "asr": asr.__dict__,
+            "circuit": self.circuit_snapshot_all(),
         }
 
     async def openai_chat(
@@ -79,6 +98,12 @@ class GpuServiceClient:
         max_tokens: int = 128,
         timeout_seconds: float = 30,
     ) -> dict[str, Any]:
+        breaker = _breaker_for("llm")
+        if not breaker.allow_request():
+            raise GpuCircuitOpenError(
+                f"GPU LLM circuit breaker is open. Last error: {breaker._last_error}"
+            )
+        
         if not base_url:
             raise RuntimeError("GPU LLM base url is not configured.")
 
@@ -89,17 +114,149 @@ class GpuServiceClient:
             "max_tokens": max_tokens,
         }
 
-        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-            response = await client.post(
-                _join_url(base_url, "chat/completions"),
-                headers={
-                    "Content-Type": "application/json",
-                    **_auth_headers(),
-                },
-                json=payload,
+        started = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                response = await client.post(
+                    _join_url(base_url, "chat/completions"),
+                    headers={
+                        "Content-Type": "application/json",
+                        **_auth_headers(),
+                    },
+                    json=payload,
+                )
+                response.raise_for_status()
+                result = response.json()
+            
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            breaker.record_success()
+            metrics_store.record_external_service(
+                service="llm",
+                ok=True,
+                latency_ms=latency_ms,
             )
-            response.raise_for_status()
-            return response.json()
+            return result
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            breaker.record_failure(str(exc))
+            metrics_store.record_external_service(
+                service="llm",
+                ok=False,
+                latency_ms=latency_ms,
+                error=str(exc),
+            )
+            raise
 
+    def circuit_snapshot_all(self) ->dict[str,dict]:
+        return {
+            "llm":_llm_breaker.snapshot().__dict__,
+            "tts":_tts_breaker.snapshot().__dict__,
+            "asr":_asr_breaker.snapshot().__dict__,
+        }
 
+    async def tts(
+            self,
+            *,
+            text:str,
+            voice:str = "default",
+            emotion:str = "neutral",
+            speed:float = 1.0,
+            timeout_seconds: float = 120,
+    ) ->dict[str,Any]:
+        if not cloud_settings.gpu_tts_base_url:
+            raise RuntimeError("GPU TTS base url is not configured.")
+
+        breaker = _breaker_for("tts")
+        if not breaker.allow_request():
+            raise GpuCircuitOpenError(
+                f"GPU TTS circuit breaker is open. Last error: {breaker._last_error}"
+            )
+
+        started = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                response = await client.post(
+                    _join_url(cloud_settings.gpu_tts_base_url, "tts"),
+                    headers={
+                        "Content-Type": "application/json",
+                        **_auth_headers(),
+                    },
+                    json={
+                        "text": text,
+                        "voice": voice,
+                        "emotion": emotion,
+                        "speed": speed,
+                        "format":"wav",
+                    },
+                )
+                response.raise_for_status()
+                result = response.json()
+            
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            breaker.record_success()
+            metrics_store.record_external_service(
+                service="tts",
+                ok=True,
+                latency_ms=latency_ms,
+            )
+            return result
+        
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            breaker.record_failure(str(exc))
+            metrics_store.record_external_service(
+                service="tts",
+                ok=False,
+                latency_ms=latency_ms,
+                error=str(exc),
+            )
+            raise
+
+    async def asr(
+        self,
+        *,
+        audio_bytes: bytes,
+        filename: str = "audio.wav",
+        timeout_seconds: float = 120,
+    ) -> dict[str, Any]:
+        if not cloud_settings.gpu_asr_base_url:
+            raise RuntimeError("GPU ASR base url is not configured.")
+
+        breaker = _breaker_for("asr")
+        if not breaker.allow_request():
+            raise GpuCircuitOpenError("GPU ASR circuit is open.")
+
+        started = time.perf_counter()
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                response = await client.post(
+                    _join_url(cloud_settings.gpu_asr_base_url, "asr"),
+                    headers=_auth_headers(),
+                    files={
+                        "file": (filename, audio_bytes, "audio/wav"),
+                    },
+                )
+                response.raise_for_status()
+                result = response.json()
+
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            breaker.record_success()
+            metrics_store.record_external_service(
+                service="asr",
+                ok=True,
+                latency_ms=latency_ms,
+            )
+            return result
+
+        except Exception as exc:
+            latency_ms = round((time.perf_counter() - started) * 1000, 2)
+            breaker.record_failure(str(exc))
+            metrics_store.record_external_service(
+                service="asr",
+                ok=False,
+                latency_ms=latency_ms,
+                error=str(exc),
+            )
+            raise
 gpu_client = GpuServiceClient()

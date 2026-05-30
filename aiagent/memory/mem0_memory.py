@@ -56,6 +56,10 @@ class Mem0LongTermMemory:
         reset_vector_store: bool = False,
     ) -> None:
         self.enable_graph = enable_graph
+        self.graph_provider = graph_provider
+        self.graph_url = graph_url or ""
+        self.graph_username = graph_username or ""
+        self.graph_database = graph_database
         self._lock = RLock()
 
         self._extend_no_proxy(embedder_base_url)
@@ -143,6 +147,15 @@ class Mem0LongTermMemory:
             enable_graph,
         )
         self.memory = Memory.from_config(config)
+
+    def graph_status(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enable_graph,
+            "provider": self.graph_provider,
+            "url": self.graph_url,
+            "username": self.graph_username,
+            "database": self.graph_database,
+        }
 
     def search(
         self,

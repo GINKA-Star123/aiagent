@@ -39,6 +39,19 @@ def get_user_memory_stats(user_id: str):
     return Response(content=body, media_type="application/json; charset=utf-8")
 
 
+@router.get("/memory/graph/status")
+def get_memory_graph_status():
+    runtime = get_runtime()
+    body = json.dumps(
+        {
+            "ok": True,
+            "graph": runtime.get_memory_graph_status(),
+        },
+        ensure_ascii=False,
+    )
+    return Response(content=body, media_type="application/json; charset=utf-8")
+
+
 @router.get("/memory/user/{user_id}/search")
 def search_user_memory(user_id: str, query: str, limit: int = 10):
     runtime = get_runtime()

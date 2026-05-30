@@ -301,4 +301,138 @@ class CloudTaskQueue:
         if redis is not None:
             await redis.delete(self._unique_key(queue, unique_key))
 
-    
+    async def list_tasks(
+        self,
+        *,
+        queue: str = "default",
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        redis = await get_redis_client()
+
+        if redis is not None:
+            pattern = f"{self.prefix}:task:*"
+            tasks: list[dict[str, Any]] = []
+
+            async for key in redis.scan_iter(match=pattern):
+                task = await redis.hgetall(key)
+                if not task:
+                    continue
+                if str(task.get("queue") or "default") != queue:
+                    continue
+
+                task_id = str(task.get("id") or "")
+                item = await self.get(task_id)
+                if item:
+                    tasks.append(item)
+
+            tasks.sort(
+                key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0),
+                reverse=True,
+            )
+            return tasks[:limit]
+
+        async with _memory_store.lock:
+            tasks = [
+                dict(task)
+                for task in _memory_store.tasks.values()
+                if str(task.get("queue") or "default") == queue
+            ]
+
+        tasks.sort(
+            key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0),
+            reverse=True,
+        )
+        return tasks[:limit]
+
+    async def list_dead_tasks(
+        self,
+        *,
+        queue: str = "default",
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        redis = await get_redis_client()
+
+        if redis is not None:
+            ids = await redis.lrange(self._dead_key(queue), -limit, -1)
+            ids = list(reversed(ids))
+            tasks = []
+
+            for task_id in ids:
+                task = await self.get(str(task_id))
+                if task:
+                    tasks.append(task)
+
+            return tasks
+
+        async with _memory_store.lock:
+            tasks = [
+                dict(task)
+                for task in _memory_store.tasks.values()
+                if str(task.get("queue") or "default") == queue
+                and str(task.get("status") or "") == "dead"
+            ]
+
+        tasks.sort(
+            key=lambda item: float(item.get("updated_at") or item.get("created_at") or 0),
+            reverse=True,
+        )
+        return tasks[:limit]
+
+    async def retry_dead_task(self, task_id: str) -> bool:
+        task = await self.get(task_id)
+        if not task:
+            return False
+
+        if str(task.get("status") or "") != "dead":
+            return False
+
+        queue = str(task.get("queue") or "default")
+        now = str(time.time())
+
+        redis = await get_redis_client()
+        if redis is not None:
+            await redis.hset(
+                self._task_key(task_id),
+                mapping={
+                    "status": "queued",
+                    "error": "",
+                    "finished_at": "",
+                    "updated_at": now,
+                },
+            )
+            await redis.rpush(self._queue_key(queue), task_id)
+            return True
+
+        async with _memory_store.lock:
+            item = _memory_store.tasks.get(task_id)
+            if not item:
+                return False
+
+            item["status"] = "queued"
+            item["error"] = ""
+            item["finished_at"] = None
+            item["updated_at"] = time.time()
+            await _memory_store.queue.put(task_id)
+
+        return True
+
+    async def task_summary(self, *, queue: str = "default") -> dict[str, int]:
+        tasks = await self.list_tasks(queue=queue, limit=1000)
+
+        summary = {
+            "queued": 0,
+            "running": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "dead": 0,
+            "total": 0,
+        }
+
+        for task in tasks:
+            status = str(task.get("status") or "unknown")
+            if status not in summary:
+                summary[status] = 0
+            summary[status] += 1
+            summary["total"] += 1
+
+        return summary

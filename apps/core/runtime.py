@@ -253,7 +253,11 @@ class CoreRuntime:
             "user_id": user_id,
             "profile": {"count": 0},
             "long_term": {"count": len(memories)},
+            "graph": self.get_memory_graph_status(),
         }
+
+    def get_memory_graph_status(self) -> dict:
+        return self.long_term_memory.graph_status()
 
     def clear_user_memories(self, user_id: str) -> dict[str, str]:
         self.long_term_memory.delete_all(user_id=user_id)

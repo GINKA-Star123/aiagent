@@ -21,6 +21,7 @@ class RuntimeDiagnostics:
             self._check_rag_files(),
             self._check_memory_config(),
             self._check_qdrant(),
+            self._check_neo4j(),
             self._check_vision_config(),
             self._check_vision_character_assets(),
             self._check_tts_config(),
@@ -279,6 +280,10 @@ class RuntimeDiagnostics:
                 "vector_provider": settings.memory_vector_provider,
                 "collection": settings.memory_vector_collection,
                 "embedding_dims": settings.memory_embedding_dims,
+                "graph_enabled": settings.memory_enable_graph,
+                "graph_provider": settings.memory_graph_provider,
+                "neo4j_url": settings.neo4j_url,
+                "neo4j_database": settings.neo4j_database,
             },
         )
 
@@ -304,6 +309,55 @@ class RuntimeDiagnostics:
                 "reachable": reachable,
             },
             action="" if reachable else "启动 Qdrant，或确认 QDRANT_HOST / QDRANT_PORT。",
+        )
+
+    def _check_neo4j(self) -> DiagnosticCheck:
+        if not settings.memory_enable_graph:
+            return DiagnosticCheck(
+                name="neo4j",
+                status="skipped",
+                summary="Neo4j check skipped because graph memory is disabled.",
+                details={"memory_enable_graph": settings.memory_enable_graph},
+            )
+
+        if settings.memory_graph_provider.strip().lower() != "neo4j":
+            return DiagnosticCheck(
+                name="neo4j",
+                status="skipped",
+                summary="Neo4j check skipped because graph provider is not neo4j.",
+                details={"memory_graph_provider": settings.memory_graph_provider},
+            )
+
+        parsed = urlparse(settings.neo4j_url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 7687
+        reachable = self._check_tcp(host, int(port), timeout=0.4)
+
+        if not self._has_secret(settings.neo4j_password):
+            return DiagnosticCheck(
+                name="neo4j",
+                status="failed",
+                summary="Neo4j password is missing while graph memory is enabled.",
+                details={
+                    "url": settings.neo4j_url,
+                    "username": settings.neo4j_username,
+                    "database": settings.neo4j_database,
+                    "reachable": reachable,
+                },
+                action="Configure NEO4J_PASSWORD, or disable MEMORY_ENABLE_GRAPH.",
+            )
+
+        return DiagnosticCheck(
+            name="neo4j",
+            status="ok" if reachable else "degraded",
+            summary="Neo4j is reachable." if reachable else "Neo4j is not reachable.",
+            details={
+                "url": settings.neo4j_url,
+                "username": settings.neo4j_username,
+                "database": settings.neo4j_database,
+                "reachable": reachable,
+            },
+            action="" if reachable else "Start Neo4j, or check NEO4J_URL / Docker service networking.",
         )
 
     def _check_vision_config(self) -> DiagnosticCheck:

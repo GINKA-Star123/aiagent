@@ -15,11 +15,20 @@ class RequestMetric:
     latency_ms:float
     created_at:float
 
+@dataclass
+class ExternalServiceMetric:
+    service:str
+    ok:bool
+    latency_ms:float
+    error:str
+    created_at:float
+
 class MetricsStore:
     def __init__(self,max_items:int = 300) -> None:
         self._lock = Lock()
         self._requests :deque[RequestMetric] = deque(maxlen=max_items)
         self._started_at=time.time()
+        self._external:deque[ExternalServiceMetric] = deque(maxlen=max_items)
     
     def record_request(
             self,
@@ -40,7 +49,59 @@ class MetricsStore:
         )
         with self._lock:
             self._requests.appendleft(item)
-    
+
+    def record_external_service(
+            self,
+            *,
+            service:str,
+            ok:bool,
+            latency_ms:float,
+            error:str = "",
+    )->None:
+        item = ExternalServiceMetric(
+            service=service,
+            ok=ok,
+            latency_ms=latency_ms,
+            error=error,
+            created_at=time.time(),
+        )
+
+        with self._lock:
+            self._external.appendleft(item)
+
+    def external_snapshot(self) -> dict[str,Any]:
+        with self._lock:
+            items = list(self._external)
+
+        services:dict[str,dict[str,Any]] = {}
+
+        for item in items:
+            bucket = services.setdefault(item.service,{
+                "recent_total": 0,
+                "recent_errors": 0,
+                "avg_latency_ms": 0.0,
+                "last_error": "",
+                "last_seen_at": 0.0,
+            })
+
+            bucket["recent_total"] += 1
+            bucket["last_seen_at"] = max(bucket["last_seen_at"],item.created_at)
+
+            if not item.ok:
+                bucket["recent_errors"] += 1
+                if not bucket["last_error"]:
+                    bucket["last_error"] = item.error
+
+        for service_name, bucket in services.items():
+            service_items = [item for item in items if item.service == service_name]
+            if service_items:
+                bucket["avg_latency_ms"] = round(
+                    sum(item.latency_ms for item in service_items) / len(service_items),
+                    2,
+                )
+
+        return services
+
     def snapshot(self) ->dict[str,Any]:
         with self._lock:
             requests = list(self._requests)
@@ -65,6 +126,7 @@ class MetricsStore:
             "avg_latency_ms":avg_latency,
             "route_counts":route_counts,
             "recent_requests":[asdict(item) for item in requests[:80]],
+            "external_services":self.external_snapshot(),
         }
     
 metrics_store = MetricsStore()

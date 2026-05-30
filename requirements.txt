@@ -22,3 +22,4 @@ PySide6
 sentence-transformers
 faiss-cpu
 rank-bm25
+neo4j
