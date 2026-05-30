@@ -27,6 +27,7 @@ from apps.api.routes.vision import router as vision_router
 from apps.api.routes.voice import router as voice_router
 from apps.api.routes.voice_realtime import router as voice_realtime_router
 from apps.api.routes.session import router as session_router
+from apps.api.routes.dashboard import router as dashboard_router
 from config.settings import settings
 
 logger = logging.getLogger("aiagent.api")
@@ -60,6 +61,7 @@ if cloud_settings.storage_provider.lower() == "local":
     )
 
 app.include_router(health_router)
+app.include_router(dashboard_router)
 app.include_router(cloud_router)
 app.include_router(cloud_tasks_router)
 app.include_router(cloud_gpu_router)

@@ -17,7 +17,7 @@ services:
       dockerfile: deploy/Dockerfile.api
     restart: unless-stopped
     env_file:
-      - ../config/cloud.tencent.env
+      - ../cloud.tencent.env
     environment:
       REDIS_URL: redis://redis:6379/0
       QDRANT_HOST: qdrant
@@ -33,7 +33,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/ready"]
       interval: 20s
       timeout: 5s
       retries: 5
@@ -46,7 +46,7 @@ services:
       dockerfile: deploy/Dockerfile.worker
     restart: unless-stopped
     env_file:
-      - ../config/cloud.tencent.env
+      - ../cloud.tencent.env
     environment:
       REDIS_URL: redis://redis:6379/0
       QDRANT_HOST: qdrant
@@ -87,7 +87,7 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     env_file:
-      - ../config/cloud.tencent.env
+      - ../cloud.tencent.env
     environment:
       POSTGRES_DB: aiagent
       POSTGRES_USER: aiagent

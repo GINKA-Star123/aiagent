@@ -25,6 +25,7 @@ async def enqueue_knowledge_rebuild(
         payload={"force_rebuild": req.force_rebuild},
         unique_key="knowledge.rebuild",
         unique_ttl_seconds=3600,
+        max_attempts=3,
     )
 
     return {
@@ -45,6 +46,7 @@ async def enqueue_vision_character_rebuild(
         payload={"force_rebuild": req.force_rebuild},
         unique_key="vision.characters.rebuild",
         unique_ttl_seconds=3600,
+        max_attempts=3,
     )
 
     return {

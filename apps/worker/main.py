@@ -80,7 +80,7 @@ async def _run_task(task: dict[str, Any], worker_id: str) -> None:
 
     except Exception as exc:
         logger.exception("task failed task_id=%s type=%s", task_id, task_type)
-        await queue.fail(
+        await queue.fail_or_retry(
             task_id,
             error=f"{exc}\n{traceback.format_exc()}",
         )
@@ -92,7 +92,18 @@ async def _worker_loop(index: int) -> None:
     timeout = int(os.getenv("TASK_POP_TIMEOUT_SECONDS", "5"))
 
     logger.info("worker started worker_id=%s queue=%s", worker_id, queue_name)
-
+    stale_seconds = int(os.getenv("TASK_STALE_SECONDS", "1800"))
+    recovered = await queue.recover_stale_running(
+        queue=queue_name,
+        stale_seconds=stale_seconds,
+    )
+    if recovered:
+        logger.warning(
+            "recovered stale running tasks worker_id=%s queue=%s count=%s",
+            worker_id,
+            queue_name,
+            recovered,
+        )
     while not _stop_event.is_set():
         task = await queue.pop(queue=queue_name, timeout_seconds=timeout)
         if task is None:

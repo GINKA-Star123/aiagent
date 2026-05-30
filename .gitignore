@@ -13,7 +13,7 @@ scripts/
 third_party/
 apps/flutter_client/
 cloud.tencent.env
-
+gpu_services
 # Large model files
 data/models/
 *.bin

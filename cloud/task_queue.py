@@ -39,6 +39,9 @@ class CloudTaskQueue:
     def _queue_key(self, queue: str) -> str:
         return f"{self.prefix}:tasks:queue:{queue}"
 
+    def _dead_key(self, queue: str) -> str:
+        return f"{self.prefix}:tasks:dead:{queue}"
+
     def _unique_key(self, queue: str, unique_key: str) -> str:
         return f"{self.prefix}:tasks:unique:{queue}:{unique_key}"
 
@@ -50,6 +53,7 @@ class CloudTaskQueue:
         queue: str = "default",
         unique_key: str | None = None,
         unique_ttl_seconds: int = 1800,
+        max_attempts: int = 3,
     ) -> TaskSubmitResult:
         payload = payload or {}
         task_id = uuid.uuid4().hex
@@ -59,12 +63,7 @@ class CloudTaskQueue:
         if redis is not None:
             if unique_key:
                 unique_redis_key = self._unique_key(queue, unique_key)
-                ok = await redis.set(
-                    unique_redis_key,
-                    task_id,
-                    nx=True,
-                    ex=unique_ttl_seconds,
-                )
+                ok = await redis.set(unique_redis_key, task_id, nx=True, ex=unique_ttl_seconds)
                 if not ok:
                     existing_id = await redis.get(unique_redis_key)
                     if existing_id:
@@ -87,7 +86,10 @@ class CloudTaskQueue:
                 "created_at": str(now),
                 "started_at": "",
                 "finished_at": "",
+                "updated_at": str(now),
                 "worker_id": "",
+                "attempts": "0",
+                "max_attempts": str(max_attempts),
             }
 
             await redis.hset(self._task_key(task_id), mapping=record)
@@ -119,7 +121,10 @@ class CloudTaskQueue:
                 "created_at": now,
                 "started_at": None,
                 "finished_at": None,
+                "updated_at": now,
                 "worker_id": "",
+                "attempts": 0,
+                "max_attempts": max_attempts,
             }
             await _memory_store.queue.put(task_id)
 
@@ -131,9 +136,10 @@ class CloudTaskQueue:
             data = await redis.hgetall(self._task_key(task_id))
             if not data:
                 return {}
-
             data["payload"] = json.loads(data.get("payload") or "{}")
             data["result"] = json.loads(data.get("result") or "null")
+            data["attempts"] = int(data.get("attempts") or 0)
+            data["max_attempts"] = int(data.get("max_attempts") or 3)
             return data
 
         async with _memory_store.lock:
@@ -145,14 +151,10 @@ class CloudTaskQueue:
             item = await redis.blpop(self._queue_key(queue), timeout=timeout_seconds)
             if not item:
                 return None
-            task_id = item[1]
-            return await self.get(task_id)
+            return await self.get(item[1])
 
         try:
-            task_id = await asyncio.wait_for(
-                _memory_store.queue.get(),
-                timeout=timeout_seconds,
-            )
+            task_id = await asyncio.wait_for(_memory_store.queue.get(), timeout=timeout_seconds)
         except asyncio.TimeoutError:
             return None
 
@@ -164,21 +166,20 @@ class CloudTaskQueue:
         now = str(time.time())
 
         if redis is not None:
+            await redis.hincrby(self._task_key(task_id), "attempts", 1)
             await redis.hset(
                 self._task_key(task_id),
-                mapping={
-                    "status": "running",
-                    "started_at": now,
-                    "worker_id": worker_id,
-                },
+                mapping={"status": "running", "started_at": now, "updated_at": now, "worker_id": worker_id},
             )
             return
 
         async with _memory_store.lock:
             task = _memory_store.tasks.get(task_id)
             if task:
+                task["attempts"] = int(task.get("attempts", 0)) + 1
                 task["status"] = "running"
                 task["started_at"] = time.time()
+                task["updated_at"] = time.time()
                 task["worker_id"] = worker_id
 
     async def finish(self, task_id: str, result: Any) -> None:
@@ -193,6 +194,7 @@ class CloudTaskQueue:
                     "status": "succeeded",
                     "result": json.dumps(result, ensure_ascii=False, default=str),
                     "finished_at": now,
+                    "updated_at": now,
                 },
             )
             await self._release_unique(task)
@@ -204,30 +206,90 @@ class CloudTaskQueue:
                 item["status"] = "succeeded"
                 item["result"] = result
                 item["finished_at"] = time.time()
+                item["updated_at"] = time.time()
 
-    async def fail(self, task_id: str, error: str) -> None:
+    async def fail_or_retry(self, task_id: str, error: str) -> None:
         task = await self.get(task_id)
+        attempts = int(task.get("attempts") or 0)
+        max_attempts = int(task.get("max_attempts") or 3)
+        queue = str(task.get("queue") or "default")
+        now = str(time.time())
+
+        redis = await get_redis_client()
+        if attempts < max_attempts:
+            if redis is not None:
+                await redis.hset(
+                    self._task_key(task_id),
+                    mapping={"status": "queued", "error": error, "updated_at": now},
+                )
+                await redis.rpush(self._queue_key(queue), task_id)
+                return
+
+            async with _memory_store.lock:
+                item = _memory_store.tasks.get(task_id)
+                if item:
+                    item["status"] = "queued"
+                    item["error"] = error
+                    item["updated_at"] = time.time()
+                    await _memory_store.queue.put(task_id)
+                return
+
+        await self.dead_letter(task_id, error)
+
+    async def dead_letter(self, task_id: str, error: str) -> None:
+        task = await self.get(task_id)
+        queue = str(task.get("queue") or "default")
         redis = await get_redis_client()
         now = str(time.time())
 
         if redis is not None:
             await redis.hset(
                 self._task_key(task_id),
-                mapping={
-                    "status": "failed",
-                    "error": error,
-                    "finished_at": now,
-                },
+                mapping={"status": "dead", "error": error, "finished_at": now, "updated_at": now},
             )
+            await redis.rpush(self._dead_key(queue), task_id)
             await self._release_unique(task)
             return
 
         async with _memory_store.lock:
             item = _memory_store.tasks.get(task_id)
             if item:
-                item["status"] = "failed"
+                item["status"] = "dead"
                 item["error"] = error
                 item["finished_at"] = time.time()
+                item["updated_at"] = time.time()
+
+    async def recover_stale_running(self, queue: str, stale_seconds: int = 1800) -> int:
+        redis = await get_redis_client()
+        now = time.time()
+        recovered = 0
+
+        if redis is not None:
+            pattern = f"{self.prefix}:task:*"
+            async for key in redis.scan_iter(match=pattern):
+                task = await redis.hgetall(key)
+                if task.get("queue") != queue or task.get("status") != "running":
+                    continue
+                started_at = float(task.get("started_at") or 0)
+                if started_at and now - started_at > stale_seconds:
+                    task_id = str(task["id"])
+                    await redis.hset(key, mapping={"status": "queued", "updated_at": str(now)})
+                    await redis.rpush(self._queue_key(queue), task_id)
+                    recovered += 1
+            return recovered
+
+        async with _memory_store.lock:
+            for task_id, task in _memory_store.tasks.items():
+                if task.get("queue") != queue or task.get("status") != "running":
+                    continue
+                started_at = float(task.get("started_at") or 0)
+                if started_at and now - started_at > stale_seconds:
+                    task["status"] = "queued"
+                    task["updated_at"] = now
+                    await _memory_store.queue.put(task_id)
+                    recovered += 1
+
+        return recovered
 
     async def _release_unique(self, task: dict[str, Any]) -> None:
         unique_key = str(task.get("unique_key") or "")
@@ -238,3 +300,5 @@ class CloudTaskQueue:
         redis = await get_redis_client()
         if redis is not None:
             await redis.delete(self._unique_key(queue, unique_key))
+
+    

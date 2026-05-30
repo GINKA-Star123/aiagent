@@ -40,6 +40,7 @@ class SessionSnapshot(BaseModel):
     user_id: str
     username: str = "guest"
     last_opened_at: datetime | None = None
+    last_opening_shown_at: datetime | None = None
     last_topic: str = ""
     last_emotion: str = "neutral"
     unfinished_hint: str = ""

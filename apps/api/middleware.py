@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request, Response
 
 from apps.api.request_context import clear_request_context, set_request_context
+from apps.api.metrics_store import metrics_store
 
 logger = logging.getLogger("aiagent.api.request")
 
@@ -45,6 +46,14 @@ async def request_logging_middleware(
 
     response.headers["x-request-id"] = request_id
     response.headers["x-response-time-ms"] = str(latency_ms)
+
+    metrics_store.record_request(
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        latency_ms=latency_ms,
+    )
 
     logger.info(
         "request completed request_id=%s method=%s path=%s status_code=%s latency_ms=%s",

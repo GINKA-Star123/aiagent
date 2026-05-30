@@ -12,10 +12,10 @@ def degraded_chat_response(
     user_text: str = "",
     retry_after_seconds: int = 5,
 ) -> dict[str, Any]:
-    fallback_reply = "我这边的云端服务暂时有点忙，请稍等几秒再试一次。"
+    fallback_reply = "唉唉唉，阿绫这边有点忙，稍后再回复你哦"
 
     if user_text.strip():
-        fallback_reply = "我收到你的消息了，但当前云端推理服务繁忙，请稍后重试。"
+        fallback_reply = "唉唉唉，阿绫这边有点忙，稍后再回复你哦"
 
     return {
         "ok": False,
