@@ -204,7 +204,7 @@ VISION_TIMEOUT_SECONDS=180
 
 | 配置项 | 默认值 | 说明 | 影响范围 |
 | --- | --- | --- | --- |
-| `VISION_CHARACTER_ROOT_DIR` | `data/vision/characters` | 角色图库根目录 | `aiagent.vision.character_registry.CharacterRegistry` |
+| `VISION_CHARACTER_ROOT_DIR` | `data/characters` | 角色图库根目录 | `aiagent.vision.character_registry.CharacterRegistry` |
 | `VISION_CHARACTER_INDEX_DIR` | `data/cache/vision/character_index` | FAISS 索引缓存目录 | `aiagent.vision.character_retriever.CharacterRetriever` |
 | `VISION_CHARACTER_EMBEDDING_MODEL_NAME` | `clip-ViT-B-32` | 角色图像 embedding 模型名 | 角色相似度检索 |
 | `VISION_CHARACTER_EMBEDDING_MODEL_PATH` | 空 | 本地 CLIP 模型路径 | 本地模型加载 |
@@ -212,13 +212,13 @@ VISION_TIMEOUT_SECONDS=180
 | `VISION_CHARACTER_EMBEDDING_LOCAL_FILES_ONLY` | `false` | 是否只使用本地模型 | 避免联网下载 |
 | `VISION_CHARACTER_CONFIDENT_SCORE` | `0.78` | 角色识别置信阈值 | 是否确认角色 |
 
-项目早期测试中常用的角色目录是：
+当前工作区使用的角色目录是：
 
 ```text
 data/characters
 ```
 
-如果你的图库实际放在这里，需要显式配置：
+本地开发可以保持默认值；如果部署环境的图库放在其他位置，再显式覆盖：
 
 ```env
 VISION_CHARACTER_ROOT_DIR=data/characters
@@ -434,6 +434,7 @@ ASR_LANGUAGE=zh
 
 - 当前 `config/defaults.py` 中 persona 默认文本存在乱码，建议后续修正源码默认值。
 - 实际角色配置应优先使用 `data/persona/{persona_id}/persona.yaml`。
+- 当前默认角色 `yzl` 的参考音频在 `data/persona/yzl/refaudio.wav`。
 
 影响文件：
 
@@ -441,7 +442,7 @@ ASR_LANGUAGE=zh
 - `aiagent/persona/persona_manager.py`
 - `aiagent/persona/persona_runtime.py`
 - `aiagent/persona/persona_guard.py`
-- `domain/persona/persona_profile.py`
+- `data/persona/{persona_id}/persona.yaml`
 
 ## Live2D 配置
 
@@ -567,18 +568,10 @@ powershell -ExecutionPolicy Bypass -File scripts\test_runtime_diagnostics.ps1
 powershell -ExecutionPolicy Bypass -File scripts\test_all.ps1 -ContinueOnFailure
 ```
 
-视觉单测：
+视觉/多模态检查：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\test_vision.ps1 `
-  -ImagePath "data\characters\luotianyi\images\LUO1.jpg"
-```
-
-多模态单测：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\test_multimodal_chat.ps1 `
-  -ImagePath "data\characters\luotianyi\images\LUO1.jpg"
+powershell -ExecutionPolicy Bypass -File scripts\test_all.ps1 -ContinueOnFailure
 ```
 
 Live2D 单测：
@@ -589,11 +582,10 @@ powershell -ExecutionPolicy Bypass -File scripts\test_live2d_payload.ps1
 
 ## 已知配置风险
 
-当前代码中有几处默认中文文本疑似因编码问题变成乱码：
+历史代码中曾出现过默认中文文本编码问题，后续如果再次发现乱码，优先检查：
 
 - `config/defaults.py` 中的 persona 默认文本
-- `config/settings.py` 中的 `GPT_SOVITS_PROMPT_TEXT`
-- 个别 API route 旧版本中出现过乱码 prompt
+- 个别 API route 或 prompt 旧版本中的中文文本
 
 建议后续单独做一次编码清理：
 

@@ -81,6 +81,10 @@ class Settings(BaseSettings):
 
     asr_provider: str = Field(default="mock", alias="ASR_PROVIDER")
     enable_mock_asr: bool = Field(default=True, alias="ENABLE_MOCK_ASR")
+    asr_api_base_url:str = Field(default="",alias="ASR_API_BASE_URL")
+    asr_api_key : str|None = Field(default=None,alias="ASR_API_KEY")
+    asr_model:str = Field(default="whisper-large-v3",alias="ASR_MODEL")
+    asr_timeout_seconds:float = Field(default=60.0,alias="ASR_TIMEOUT_SECONDS")
     asr_model_size: str = Field(default="medium", alias="ASR_MODEL_SIZE")
     asr_model_path: str = Field(default="", alias="ASR_MODEL_PATH")
     asr_device: str = Field(default="cpu", alias="ASR_DEVICE")
@@ -120,7 +124,7 @@ class Settings(BaseSettings):
     vision_max_image_bytes: int = Field(default=12582912, alias="VISION_MAX_IMAGE_BYTES")
 
     vision_character_root_dir: str = Field(
-        default="data/vision/characters",
+        default="data/characters",
         alias="VISION_CHARACTER_ROOT_DIR",
     )
     vision_character_index_dir: str = Field(

@@ -360,7 +360,7 @@ class Mem0LongTermMemory:
 
         return None
 
-    def _normalize_embedder_provider(self, provider: str) -> str:
+    def   _normalize_embedder_provider(self, provider: str) -> str:
         normalized = provider.strip().lower()
         if normalized == "siliconflow":
             logger.warning(

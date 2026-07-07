@@ -1,10 +1,9 @@
-import pytest
+import asyncio
 
 from cloud.limits import RateLimiter
 
 
-@pytest.mark.asyncio
-async def test_rate_limiter_blocks_after_limit():
+async def _check_rate_limiter_blocks_after_limit():
     limiter = RateLimiter(prefix="test")
     key = "unit:user"
 
@@ -13,3 +12,7 @@ async def test_rate_limiter_blocks_after_limit():
 
     assert first.allowed is True
     assert second.allowed is False
+
+
+def test_rate_limiter_blocks_after_limit():
+    asyncio.run(_check_rate_limiter_blocks_after_limit())

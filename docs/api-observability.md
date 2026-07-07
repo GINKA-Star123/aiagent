@@ -88,6 +88,33 @@ x-response-time-ms: 132.41
 }
 ```
 
+## 聊天响应字段约定
+
+`POST /chat` 和 `POST /chat/multimodal` 应保持同一套核心响应字段，便于 Flutter、Qt 和后续客户端复用同一个解析模型：
+
+```json
+{
+  "ok": true,
+  "output_id": "...",
+  "reply": "你好。",
+  "base_reply_text": "你好。",
+  "emotion": "calm",
+  "motion": "soft_idle",
+  "expression": "gentle",
+  "audio_path": "data/cache/mock_tts/example.txt",
+  "audio_url": "/audio/example.txt",
+  "audio_segments": [],
+  "audio_segment_urls": [],
+  "audio_segment_texts": [],
+  "live2d_command_path": "",
+  "live2d": {},
+  "metadata": {},
+  "request_id": "5b5d2c38a6d249708a6cde93058c9a19"
+}
+```
+
+不要新增拼写不同的平行字段，例如 `replt`、`audio_segments_texts`。客户端应以 `reply`、`audio_segment_texts`、`live2d` 为准。
+
 ## 日志格式
 
 请求成功或正常返回时：

@@ -552,6 +552,48 @@ class RuntimeDiagnostics:
                 details={"provider": settings.asr_provider, "mock": True},
             )
 
+        if provider == "api":
+            if not settings.asr_api_base_url.strip():
+                return DiagnosticCheck(
+                    name="asr_config",
+                    status="failed",
+                    summary="ASR API base URL is missing.",
+                    details={
+                        "provider": settings.asr_provider,
+                        "base_url": settings.asr_api_base_url,
+                        "model": settings.asr_model,
+                    },
+                    action="Configure ASR_API_BASE_URL, or set ASR_PROVIDER=mock.",
+                )
+
+            if not self._has_secret(settings.asr_api_key):
+                return DiagnosticCheck(
+                    name="asr_config",
+                    status="degraded",
+                    summary="ASR API key is missing.",
+                    details={
+                        "provider": settings.asr_provider,
+                        "base_url": settings.asr_api_base_url,
+                        "model": settings.asr_model,
+                        "language": settings.asr_language,
+                        "timeout_seconds": settings.asr_timeout_seconds,
+                    },
+                    action="Configure ASR_API_KEY if the ASR provider requires authentication.",
+                )
+
+            return DiagnosticCheck(
+                name="asr_config",
+                status="ok",
+                summary="ASR API config is present.",
+                details={
+                    "provider": settings.asr_provider,
+                    "base_url": settings.asr_api_base_url,
+                    "model": settings.asr_model,
+                    "language": settings.asr_language,
+                    "timeout_seconds": settings.asr_timeout_seconds,
+                },
+            )
+
         if provider in {"faster_whisper", "faster-whisper", "whisper"}:
             model_path = settings.asr_model_path.strip()
             if model_path and not Path(model_path).exists():

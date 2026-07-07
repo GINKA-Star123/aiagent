@@ -8,5 +8,6 @@ Requires-Dist: langchain>=1.2.15
 Requires-Dist: langchain-openai>=0.2.14
 Requires-Dist: langgraph>=1.1.10
 Requires-Dist: mem0ai>=2.0.1
+Requires-Dist: neo4j>=5.20.0
 Requires-Dist: ollama>=0.6.1
 Requires-Dist: pyyaml>=6.0.3

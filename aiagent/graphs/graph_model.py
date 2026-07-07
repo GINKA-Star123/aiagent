@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 NO_LONG_TERM_MEMORY_TEXT = "无长期记忆。"
 
@@ -115,7 +115,10 @@ class RAGGraphResult(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
 
 class VisionSafetyResult(BaseModel):
-    has_sentitive_content: bool = False
+    has_sensitive_content: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("has_sensitive_content", "has_sentitive_content"),
+    )
     risk_level: str =  "none"
     reason:str = ""
 

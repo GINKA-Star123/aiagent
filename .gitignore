@@ -12,6 +12,7 @@ data/
 scripts/
 third_party/
 apps/flutter_client/
+apps/desktop_qt/
 cloud.tencent.env
 gpu_services
 # Large model files

@@ -55,6 +55,7 @@ from aiagent.state.speaking_state import SpeakingState
 from aiagent.state.stream_state import StreamingState
 from apps.core.runtime import CoreRuntime
 from config.settings import settings
+from integrations.asr.api_asr_client import ApiASRClient
 from integrations.asr.faster_whisper_client import FasterWhisperClient
 from integrations.asr.microphone import StreamingMicrophone
 from integrations.asr.mock_asr_client import MockASRClient
@@ -311,8 +312,18 @@ def build_runtime() -> CoreRuntime:
         enable_local_audio_playback=settings.enable_local_audio_playback,
     )
 
-    if settings.enable_mock_asr or settings.asr_provider == "mock":
+    asr_provider = settings.asr_provider.strip().lower()
+
+    if settings.enable_mock_asr or asr_provider == "mock":
         asr_client = MockASRClient()
+    elif asr_provider == "api":
+        asr_client = ApiASRClient(
+            base_url = settings.asr_api_base_url,
+            api_key = settings.asr_api_key,
+            model =settings.asr_model,
+            language = settings.asr_language,
+            timeout_seconds= settings.asr_timeout_seconds
+        )
     else:
         asr_client = FasterWhisperClient(
             model_size=settings.asr_model_size,

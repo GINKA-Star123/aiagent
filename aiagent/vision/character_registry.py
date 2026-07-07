@@ -19,7 +19,7 @@ class CharacterProfile:
 class CharacterRegistry:
     def __init__(
         self,
-        root_dir:str|Path = "data/vision/characters",
+        root_dir:str|Path = "data/characters",
     ) ->None:
         self.root_dir =Path(root_dir)
         self.root_dir.mkdir(parents=True, exist_ok=True)

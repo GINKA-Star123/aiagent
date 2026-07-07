@@ -1,6 +1,7 @@
 """Microphone and ASR input adapter."""
 import logging
 
+from integrations.asr.api_asr_client import ApiASRClient
 from integrations.asr.faster_whisper_client import FasterWhisperClient
 from integrations.asr.mock_asr_client import MockASRClient
 from integrations.audio.microphone_recorder import MicrophoneRecorder
@@ -9,7 +10,7 @@ from integrations.audio.microphone_recorder import MicrophoneRecorder
 class ASRListener:
     def __init__(
             self,
-            asr_client: MockASRClient | FasterWhisperClient,
+            asr_client: MockASRClient | FasterWhisperClient | ApiASRClient,
             recorder: MicrophoneRecorder | None = None,
             asr_provider : str = "mock",
             enable_mock_asr : bool =True,

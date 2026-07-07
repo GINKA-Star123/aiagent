@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, File, Form, UploadFile
 from starlette.responses import JSONResponse
@@ -57,13 +58,14 @@ async def multimodal_chat(
                 text=text,
                 user_id = user_id,
                 username = username
-            )
+        )
         
         packet = output.packet
+        live2d = packet.live2d or _build_live2d_payload(packet)
 
         return ok_response(
             output_id = output.output_id,
-            replt = packet.reply_text,
+            reply = packet.reply_text,
             base_reply_text = packet.base_reply_text,
             emotion = packet.emotion,
             motion = packet.motion,
@@ -72,8 +74,9 @@ async def multimodal_chat(
             audio_url = packet.audio_url,
             audio_segments = packet.audio_segments,
             audio_segment_urls = packet.audio_segment_urls,
-            audio_segments_texts = packet.audio_segment_texts,
+            audio_segment_texts = packet.audio_segment_texts,
             live2d_command_path = packet.live2d_command_path,
+            live2d = live2d,
             metadata = packet.metadata,
         )
     
@@ -101,3 +104,31 @@ async def multimodal_chat(
                 ),
             )
         return error_response(stage="chat", exc=exc, status_code=500)
+
+
+def _build_live2d_payload(packet) -> dict[str, Any]:
+    audio_url = packet.audio_url or ""
+
+    return {
+        "character": {
+            "character_id": "yzl",
+            "model_id": "yzl_v1",
+            "emotion": str(packet.emotion),
+            "expression": packet.expression or "neutral",
+            "motion": packet.motion or "idle",
+            "motion_priority": 1,
+            "mouth": {
+                "mode": "audio" if audio_url else "idle",
+                "audio_url": audio_url,
+            },
+            "eye": {
+                "blink": True,
+                "look_at": "user",
+            },
+        },
+        "scene": {
+            "background_id": "room_default",
+            "lighting": "normal",
+            "effect": "none",
+        },
+    }

@@ -12,12 +12,14 @@ apps/api/             FastAPI HTTP 服务与路由
 apps/core/            Runtime 构建与本地命令行入口
 apps/desktop_qt/      Qt 桌面调试端
 apps/flutter_client/  Flutter 手机端，当前 V1.0 RC 重点
-apps/web/             Next.js Web 控制台
+apps/worker/          云端异步任务 worker
+cloud/                云模式配置、限流、队列、存储、GPU client
 config/               统一配置和默认值
-domain/               领域模型和业务规则
 integrations/         LLM / ASR / TTS / Live2D / 音频等外部集成
 data/                 本地资源、模型、缓存、上传、日志，默认不入仓
+deploy/               Dockerfile、docker-compose、nginx 配置
 docs/                 架构、配置、观测性和阶段文档
+gpu_services/         GPU 服务草稿与占位目录
 scripts/              PowerShell 测试与资源工具，当前本地忽略
 tests/                Python 单元和集成测试
 ```
@@ -35,13 +37,12 @@ tests/                Python 单元和集成测试
 - 视觉理解：图片分析、角色图库索引、视觉上下文进入对话
 - Live2D：后端 payload 协议、资源扫描、预览、移动端 WebView 舞台
 - 可观测性：`request_id`、响应耗时、统一错误结构、运行时诊断
-- 多端入口：FastAPI、Flutter、Qt、Next.js Web
+- 多端入口：FastAPI、Flutter、Qt；Web 控制台当前未纳入工作区
 
 ## 环境要求
 
 - Python `3.11+`
 - Flutter SDK，Android 真机或模拟器
-- Node.js，供 `apps/web` 使用
 - 可选服务：Qdrant、Neo4j、GPT-SoVITS / IndexTTS2 / VoxCPM、faster-whisper、本地或远程 LLM
 
 开发环境建议使用项目根目录的虚拟环境：
@@ -132,17 +133,7 @@ Android release 构建会读取 `apps/flutter_client/android/key.properties`。�
 
 ## Web 控制台
 
-```powershell
-cd F:\aiagent\apps\web
-npm install
-npm run dev
-```
-
-Web 端目前是控制台骨架，模块文档分布在 `apps/web/src/features/*/README.md`。构建命令：
-
-```powershell
-npm run build
-```
+当前工作区没有 `apps/web` 目录。早期文档中提到的 Next.js 控制台不属于当前可运行代码；如果后续恢复 Web 控制台，需要重新补齐目录、依赖和构建说明。
 
 ## Qt 桌面调试端
 
@@ -155,7 +146,7 @@ Qt 端适合本地调试聊天、运行时快照、Live2D payload 和诊断结�
 
 - [apps/desktop_qt/main.py](apps/desktop_qt/main.py)
 - [apps/desktop_qt/chat_window.py](apps/desktop_qt/chat_window.py)
-- [apps/desktop_qt/live2d_debug_window.py](apps/desktop_qt/live2d_debug_window.py)
+- [apps/desktop_qt/live2d_view_panel.py](apps/desktop_qt/live2d_view_panel.py)
 
 ## API 速览
 
@@ -217,7 +208,7 @@ Flutter 侧测试见“Flutter 手机端”章节。
 data/persona/               角色人格配置
 data/live2d/characters/     Live2D 角色模型和 profile
 data/live2d/backgrounds/    背景资源
-data/vision/characters/     视觉角色图库
+data/characters/            视觉角色图库
 data/models/                本地 ASR / embedding / CLIP 等模型
 data/uploads/               API 上传文件缓存
 data/cache/                 RAG / Vision 等索引缓存
@@ -261,7 +252,6 @@ apps/flutter_client/assets/live2d_web/
 
 - [docs/config-reference.md](docs/config-reference.md)
 - [docs/api-observability.md](docs/api-observability.md)
-- [docs/phase4-stabilization-closure.md](docs/phase4-stabilization-closure.md)
 - [docs/project-file-inventory.md](docs/project-file-inventory.md)
 - [docs/project-overview-next-stage.md](docs/project-overview-next-stage.md)
 - [stage.md](stage.md)

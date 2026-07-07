@@ -88,7 +88,6 @@ aiagent/graphs/graph_model.py
 
 ```text
 aiagent/persona/*
-domain/persona/*
 data/persona/*
 ```
 
