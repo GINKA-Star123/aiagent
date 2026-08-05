@@ -167,6 +167,20 @@ class Settings(BaseSettings):
     memory_vector_collection: str = Field(default="aiagent_long_term_memory", alias="MEMORY_VECTOR_COLLECTION")
     memory_embedding_dims: int = Field(default=1536, alias="MEMORY_EMBEDDING_DIMS")
 
+    memory_long_term_default_enabled: bool = Field(
+        default=True,
+        alias="MEMORY_LONG_TERM_DEFAULT_ENABLED",
+    )
+    memory_preferences_path: str = Field(
+        default="data/runtime/memory_preferences.json",
+        alias="MEMORY_PREFERENCES_PATH",
+    )
+
+    memory_prompt_max_chars: int = Field(default=1200, alias="MEMORY_PROMPT_MAX_CHARS")
+    memory_prompt_pinned_limit: int = Field(default=4, alias="MEMORY_PROMPT_PINNED_LIMIT")
+    memory_prompt_relevant_limit: int = Field(default=6, alias="MEMORY_PROMPT_RELEVANT_LIMIT")
+    memory_prompt_item_max_chars: int = Field(default=120, alias="MEMORY_PROMPT_ITEM_MAX_CHARS")
+
     qdrant_host: str = Field(default="localhost", alias="QDRANT_HOST")
     qdrant_port: int = Field(default=6333, alias="QDRANT_PORT")
 

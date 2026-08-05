@@ -7,10 +7,17 @@ from typing import Any
 from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
 
+from apps.api.response_utils import (
+    error_message_response,
+    error_response,
+    ok_response,
+)
+
 from aiagent.live2d.motion_mapper import Live2DMotionMapper
 from aiagent.live2d.payload_builder import Live2DPayloadBuilder
 from aiagent.live2d.registry import Live2DRegistry
 from aiagent.live2d.scene_mapper import Live2DSceneMapper
+from aiagent.live2d.payload_contract import normalize_live2d_payload
 from integrations.live2d.live2d_py_runtime import Live2DPyRuntime
 from integrations.live2d.model_scanner import Live2DModelScanner
 from integrations.live2d.profile_generator import Live2DProfileGenerator
@@ -65,14 +72,15 @@ class Live2DGenerateProfileRequest(BaseModel):
 def live2d_stats():
     try:
         registry = _build_registry()
-        return _json_response(
-            {
-                "ok": True,
-                "stats": registry.stats(),
-            }
+        return ok_response(
+            stats=registry.stats(),
         )
     except Exception as exc:
-        return _error_response(exc)
+        return error_response(
+            stage="live2d_stats",
+            exc=exc,
+            status_code=500,
+        )
 
 
 @router.post("/live2d/preview")
@@ -92,29 +100,31 @@ def live2d_preview(request: Live2DPreviewRequest):
             metadata=request.metadata,
         )
 
-        return _json_response(
-            {
-                "ok": True,
-                "payload": payload,
-            }
+        return ok_response(
+            payload=payload,
         )
+
     except Exception as exc:
-        return _error_response(exc)
+        return error_response(
+            stage="live2d_preview",
+            exc=exc,
+            status_code=500,
+        )
 
 
 @router.get("/live2d/runtime/status")
 def live2d_runtime_status():
     try:
         runtime = Live2DPyRuntime()
-        return _json_response(
-            {
-                "ok": True,
-                "runtime": runtime.status(),
-            }
+        return ok_response(
+            runtime=runtime.status(),
         )
     except Exception as exc:
-        return _error_response(exc)
-
+        return error_response(
+            stage="live2d_runtime_status",
+            exc=exc,
+            status_code=500,
+        )
 
 @router.post("/live2d/runtime/inspect")
 def live2d_runtime_inspect(request: Live2DInspectRequest):
@@ -124,15 +134,16 @@ def live2d_runtime_inspect(request: Live2DInspectRequest):
             character_id=request.character_id,
             model3_json=request.model3_json,
         )
-        return _json_response(
-            {
-                "ok": True,
-                "inspection": runtime.prepare_model(model3_json),
-            }
-        )
-    except Exception as exc:
-        return _error_response(exc)
+        return ok_response(
+                   model3_json=model3_json,
+               )
 
+    except Exception as exc:
+        return error_response(
+                    stage="live2d_runtime_load",
+                    exc=exc,
+                    status_code=500,
+                )
 
 @router.post("/live2d/runtime/load")
 def live2d_runtime_load(request: Live2DLoadRequest):
@@ -143,14 +154,27 @@ def live2d_runtime_load(request: Live2DLoadRequest):
             model3_json=request.model3_json,
         )
         result = runtime.load_model_session(model3_json)
-        return _json_response(
-            {
-                "ok": bool(result.get("ok")),
-                "result": result,
-            }
+
+        if not result.get("ok"):
+            return error_message_response(
+                stage="live2d_runtime_load",
+                error=str(result.get("error") or "Live2D model load failed."),
+                status_code=500,
+                extra={
+                    "result": result,
+                },
+            )
+
+        return ok_response(
+            result=result,
         )
+
     except Exception as exc:
-        return _error_response(exc)
+        return error_response(
+            stage="live2d_runtime_load",
+            exc=exc,
+            status_code=500,
+        )
 
 
 @router.post("/live2d/runtime/apply-payload")
@@ -164,39 +188,48 @@ def live2d_runtime_apply_payload(request: Live2DApplyPayloadRequest):
         renderer = HeadlessLive2DRenderer()
         load_result = renderer.load(model3_json)
         if not load_result.get("ok"):
-            return _json_response(
-                {
-                    "ok": False,
-                    "stage": "load",
-                    "load_result": load_result,
-                }
-            )
-
-        apply_result = renderer.apply_payload(request.payload)
-        return _json_response(
-            {
-                "ok": bool(apply_result.get("ok")),
+            return error_message_response(
+            stage="live2d_runtime_apply_payload_load",
+            error=str(load_result.get("error") or "Live2D model load failed."),
+            status_code=500,
+            extra={
                 "load_result": load_result,
-                "apply_result": apply_result,
-                "snapshot": renderer.snapshot(),
-            }
+            },
+        )
+
+        payload = normalize_live2d_payload(
+            request.payload,
+            metadata={
+                "source": "live2d_runtime_apply_payload",
+            },
+        )
+
+        apply_result = renderer.apply_payload(payload)
+        return ok_response(
+            payload=payload,
+            load_result=load_result,
+            apply_result=apply_result,
+            snapshot=renderer.snapshot(),
         )
     except Exception as exc:
-        return _error_response(exc)
-
-
+        return error_response(
+                    stage="live2d_runtime_load",
+                    exc=exc,
+                    status_code=500,
+                )
 @router.post("/live2d/models/scan")
 def live2d_models_scan(request: Live2DScanRequest):
     try:
         scanner = Live2DModelScanner()
-        return _json_response(
-            {
-                "ok": True,
-                "result": scanner.scan_root(request.root),
-            }
+        return ok_response(
+            result=scanner.scan_root(request.root),
         )
     except Exception as exc:
-        return _error_response(exc)
+        return error_response(
+            stage="live2d_models_scan",
+            exc=exc,
+            status_code=500,
+        )
 
 
 @router.post("/live2d/profile/generate")
@@ -211,16 +244,18 @@ def live2d_profile_generate(request: Live2DGenerateProfileRequest):
             output_path=request.output_path,
             overwrite=request.overwrite,
         )
-        return _json_response(
-            {
-                "ok": True,
-                "profile": profile,
-                "output_path": request.output_path,
-            }
-        )
-    except Exception as exc:
-        return _error_response(exc)
 
+        return ok_response(
+            profile=profile,
+            output_path=request.output_path,
+        )
+
+    except Exception as exc:
+        return error_response(
+            stage="live2d_profile_generate",
+            exc=exc,
+            status_code=500,
+        )
 
 def _resolve_model3_json(*, character_id: str, model3_json: str | None) -> str:
     if model3_json:
@@ -248,18 +283,4 @@ def _build_payload_builder() -> Live2DPayloadBuilder:
     )
 
 
-def _json_response(body: dict, status_code: int = 200) -> Response:
-    return Response(
-        content=json.dumps(body, ensure_ascii=False, default=str),
-        media_type="application/json; charset=utf-8",
-        status_code=status_code,
-    )
 
-
-def _error_response(exc: Exception, status_code: int = 500) -> Response:
-    body = {
-        "ok": False,
-        "error": str(exc),
-        "traceback": traceback.format_exc(),
-    }
-    return _json_response(body, status_code=status_code)

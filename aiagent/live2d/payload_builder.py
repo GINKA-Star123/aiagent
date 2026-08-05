@@ -10,7 +10,7 @@ from aiagent.live2d.models import (
 from aiagent.live2d.motion_mapper import Live2DMotionMapper
 from aiagent.live2d.registry import Live2DRegistry
 from aiagent.live2d.scene_mapper import Live2DSceneMapper
-
+from aiagent.live2d.payload_contract import normalize_live2d_payload
 
 class Live2DPayloadBuilder:
     """把语义层回复状态转换成客户端 Live2D 指令 payload。"""
@@ -93,6 +93,8 @@ class Live2DPayloadBuilder:
                 motion_group=motion_group,
                 motion_file=motion_file,
                 motion_priority=motion_priority,
+                display_name=character_profile.display_name,
+                model3_json=character_profile.model3_json,
                 mouth={
                     "mode": "audio" if audio_url else "idle",
                     "audio_url": audio_url or "",
@@ -115,4 +117,4 @@ class Live2DPayloadBuilder:
             },
         )
 
-        return payload.model_dump(mode="json")
+        return normalize_live2d_payload(payload.model_dump(mode="json"))

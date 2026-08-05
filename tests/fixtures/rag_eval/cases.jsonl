@@ -1,0 +1,17 @@
+{"case_id":"yzl_identity","category":"character","query":"乐正绫是谁","expected_source_paths":["YueZhengling.md"],"expected_terms":["乐正绫"],"top_k":4,"max_rank":3,"note":"角色身份基础召回"}
+{"case_id":"yzl_alias","category":"character","query":"阿绫的代表色是什么","expected_source_paths":["YueZhengling.md"],"expected_terms":["阿绫红"],"top_k":4,"max_rank":3,"note":"别名与角色设定"}
+{"case_id":"tianyi_identity","category":"character","query":"洛天依是谁","expected_source_paths":["LuoTianyi.md"],"expected_terms":["洛天依"],"top_k":4,"max_rank":3,"note":"核心角色召回"}
+{"case_id":"yanhe_identity","category":"character","query":"言和是什么角色","expected_source_paths":["YanHe.md"],"expected_terms":["言和"],"top_k":4,"max_rank":3,"note":"角色基础知识"}
+{"case_id":"yuezhenglongya_identity","category":"character","query":"乐正龙牙是谁","expected_source_paths":["YueZhenglongya.md"],"expected_terms":["乐正龙牙"],"top_k":4,"max_rank":3,"note":"家族角色召回"}
+{"case_id":"producer_intro","category":"workflow","query":"什么是 producer","expected_source_paths":["producer.md"],"expected_terms":["producer"],"top_k":4,"max_rank":3,"note":"制作人知识"}
+{"case_id":"streaming_basics","category":"workflow","query":"直播开场应该怎么做","expected_source_paths":["streaming_basics.md"],"expected_terms":["直播"],"top_k":4,"max_rank":3,"note":"直播基础"}
+{"case_id":"relation_question","category":"character","query":"乐正绫和洛天依的关系是什么","expected_source_paths":["YueZhengling.md","LuoTianyi.md"],"expected_terms":["南北组"],"top_k":4,"max_rank":4,"note":"关系型问题"}
+{"case_id":"moqingxian_alias_identity","category":"character","query":"墨姐是谁","expected_source_paths":["MoQingxian.md"],"expected_terms":["墨清弦"],"top_k":4,"max_rank":3,"tags":["alias","profile"],"difficulty":"easy","note":"墨姐别名回指墨清弦"}
+{"case_id":"zhiyumoke_alias_identity","category":"character","query":"摩柯是谁","expected_source_paths":["ZhiYumoke.md"],"expected_terms":["徵羽摩柯"],"top_k":4,"max_rank":3,"tags":["alias","profile"],"difficulty":"easy","note":"摩柯别名回指徵羽摩柯"}
+{"case_id":"cangqiong_identity","category":"character","query":"苍穹是谁","expected_source_paths":["cangqiong.md"],"expected_terms":["苍穹"],"top_k":4,"max_rank":3,"tags":["profile"],"difficulty":"easy","note":"苍穹主体文档召回"}
+{"case_id":"haiyi_identity","category":"character","query":"海伊是谁","expected_source_paths":["haiyi.md"],"expected_terms":["海伊"],"top_k":4,"max_rank":3,"tags":["profile"],"difficulty":"easy","note":"海伊主体文档召回"}
+{"case_id":"xingchen_identity","category":"character","query":"星尘是谁","expected_source_paths":["xingchen.md"],"expected_terms":["星尘"],"top_k":4,"max_rank":3,"tags":["profile"],"difficulty":"easy","note":"星尘主体文档召回"}
+{"case_id":"zero_identity","category":"character","query":"ZERO是谁","expected_source_paths":["zero.md"],"expected_terms":["ZERO"],"top_k":4,"max_rank":3,"tags":["profile"],"difficulty":"easy","note":"ZERO 主体文档召回"}
+{"case_id":"yongyeminus_identity","category":"character","query":"永夜Minus是谁","expected_source_paths":["yongyeminus.md"],"expected_terms":["永夜Minus"],"top_k":4,"max_rank":3,"tags":["profile"],"difficulty":"easy","note":"永夜Minus 主体文档召回"}
+{"case_id":"moqingxian_cangqiong_relation","category":"mixed","query":"墨清弦和苍穹是什么关系","expected_source_paths":["MoQingxian.md","cangqiong.md"],"top_k":6,"max_rank":4,"tags":["relation","multi-hop"],"difficulty":"normal","note":"跨文档关系召回"}
+{"case_id":"haiyi_shian_relation","category":"mixed","query":"海伊和诗岸是什么关系","expected_source_paths":["haiyi.md","shian.md"],"top_k":6,"max_rank":4,"tags":["relation","multi-hop"],"difficulty":"normal","note":"跨文档关系召回"}

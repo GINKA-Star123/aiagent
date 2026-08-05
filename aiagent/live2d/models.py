@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel,Field
 
+LIVE2D_PAYLOAD_VERSION = "1.0"
+
 class Live2DExpressionAsset(BaseModel):
     expression_id:str
     file:str
@@ -41,42 +43,47 @@ class Live2DBackgroundProfile(BaseModel):
     metadata:dict[str,Any] = Field(default_factory=dict)
 
 class Live2DCharacterCommand(BaseModel):
-    character_id:str
-    model_id:str
+    character_id: str = "yzl"
+    model_id: str = "yzl_v1"
+    display_name: str = ""
+    model3_json: str = ""
 
     emotion: str = "neutral"
     expression: str = "neutral"
-    expression_file:str = ""
+    expression_file: str = ""
 
-    motion:str ="idle"
-    motion_group:str = "default"
-    motion_file:str = ""
-    motion_priority:int = 1
+    motion: str = "idle"
+    motion_group: str = "default"
+    motion_file: str = ""
+    motion_priority: int = 1
 
-    mouth:dict[str,Any] = Field(
-        default_factory=lambda:{
-            "mode":"idle",
-            "audio_url":""
+    mouth: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "mode": "idle",
+            "audio_url": "",
         }
     )
 
-    eye:dict[str,Any] = Field(
-        default_factory=lambda:{
-            "blink":True,
-            "look_at":"user"
+    eye: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "blink": True,
+            "look_at": "user",
         }
     )
+
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
 
 class Live2DSceneCommand(BaseModel):
-    background_id:str = "room_default"
-    background_file :str =""
-    lighting:str = "normal"
-    effect:str = "none"
-    metadata:dict[str,Any] = Field(default_factory=dict)
+    background_id: str = "room_default"
+    background_file: str = ""
+    lighting: str = "normal"
+    effect: str = "none"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
 
 class Live2DPayload(BaseModel):
-    version:str = "1.0"
-    character:Live2DCharacterCommand
-    scene:Live2DSceneCommand
-
-    metadata:dict[str,Any] = Field(default_factory=dict)
+    version: str = LIVE2D_PAYLOAD_VERSION
+    character: Live2DCharacterCommand = Field(default_factory=Live2DCharacterCommand)
+    scene: Live2DSceneCommand = Field(default_factory=Live2DSceneCommand)
+    metadata: dict[str, Any] = Field(default_factory=dict)

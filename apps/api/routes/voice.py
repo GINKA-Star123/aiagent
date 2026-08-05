@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import json
 import logging
-import traceback
 from pathlib import Path
-
-from fastapi import APIRouter, File, Response, UploadFile
 from pydantic import BaseModel
+from fastapi import APIRouter,File, UploadFile
 
+from apps.api.response_utils import error_response,ok_response
 from apps.core.runtime_registry import get_runtime, get_runtime_error
+
 
 router = APIRouter()
 logger = logging.getLogger("aiagent.api.voice")
@@ -26,34 +25,28 @@ class InterruptRequest(BaseModel):
     reason: str = "api_interrupt"
 
 
-def _runtime_or_error(route_name: str):
+def _runtime_or_error(route_name:str):
     try:
-        return get_runtime(), None
+        return get_runtime(),None
     except Exception as exc:
         logger.exception("Runtime init failed in %s: %s", route_name, exc)
-        body = json.dumps(
-            {
-                "ok": False,
-                "stage": "runtime_init",
-                "route": route_name,
-                "error": str(exc),
-                "runtime_error": get_runtime_error(),
-                "traceback": traceback.format_exc(),
-            },
-            ensure_ascii=False,
+        return None,error_response(
+            stage = "runtime_init",
+            exc = exc,
+            status_code = 500,
+            runtime_error = get_runtime_error(),
+            extra = {
+                "route":route_name
+            }
         )
-        return None, Response(
-            content=body,
-            media_type="application/json; charset=utf-8",
-            status_code=500,
-        )
+
 
 
 @router.post("/voice/transcribe")
 async def transcribe_voice(file: UploadFile = File(...)):
-    runtime, error_response = _runtime_or_error("/voice/transcribe")
-    if error_response is not None:
-        return error_response
+    runtime, error_response_value = _runtime_or_error("/voice/transcribe")
+    if error_response_value is not None:
+        return error_response_value
 
     try:
         upload_dir = Path("data/cache/uploads")
@@ -67,42 +60,25 @@ async def transcribe_voice(file: UploadFile = File(...)):
 
         transcript = runtime.transcribe_audio_file(str(file_path))
 
-        body = json.dumps(
-            {
-                "ok": True,
-                "transcript": transcript,
-                "file_path": str(file_path),
-            },
-            ensure_ascii=False,
+        return ok_response(
+            transcript=transcript,
+            file_path=str(file_path),
         )
 
-        return Response(
-            content=body,
-            media_type="application/json; charset=utf-8",
-        )
     except Exception as exc:
         logger.exception("/voice/transcribe failed: %s", exc)
-        body = json.dumps(
-            {
-                "ok": False,
-                "stage": "voice_transcribe",
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-            },
-            ensure_ascii=False,
-        )
-        return Response(
-            content=body,
-            media_type="application/json; charset=utf-8",
+        return error_response(
+            stage="voice_transcribe",
+            exc=exc,
             status_code=500,
         )
-
+        upload_dir = Path
 
 @router.post("/voice/turn")
 def voice_turn(req: VoiceTurnRequest):
-    runtime, error_response = _runtime_or_error("/voice/turn")
-    if error_response is not None:
-        return error_response
+    runtime, error_response_value = _runtime_or_error("/voice/turn")
+    if error_response_value is not None:
+        return error_response_value
 
     try:
         output = runtime.handle_voice_turn(
@@ -115,123 +91,78 @@ def voice_turn(req: VoiceTurnRequest):
 
         packet = output.packet
 
-        body = json.dumps(
-            {
-                "ok": True,
-                "reply": packet.reply_text,
-                "base_reply_text": packet.base_reply_text,
-                "emotion": packet.emotion,
-                "motion": packet.motion,
-                "expression": packet.expression,
-                "audio_path": packet.audio_path,
-                "audio_segments": packet.audio_segments,
-                "audio_segment_texts": packet.audio_segment_texts,
-                "live2d_command_path": packet.live2d_command_path,
-                "metadata": packet.metadata,
-                "stream_state": runtime.get_stream_state().model_dump(),
-                "speaking_state": runtime.get_speaking_state().model_dump(),
-            },
-            ensure_ascii=False,
-            default=str,
+        return ok_response(
+            output_id=output.output_id,
+            reply=packet.reply_text,
+            base_reply_text=packet.base_reply_text,
+            emotion=packet.emotion,
+            motion=packet.motion,
+            expression=packet.expression,
+            audio_path=packet.audio_path,
+            audio_url=packet.audio_url,
+            audio_segments=packet.audio_segments,
+            audio_segment_urls=packet.audio_segment_urls,
+            audio_segment_texts=packet.audio_segment_texts,
+            live2d_command_path=packet.live2d_command_path,
+            live2d=packet.live2d,
+            metadata=packet.metadata,
+            stream_state=runtime.get_stream_state().model_dump(),
+            speaking_state=runtime.get_speaking_state().model_dump(),
         )
 
-        return Response(
-            content=body,
-            media_type="application/json; charset=utf-8",
-        )
     except Exception as exc:
         logger.exception("/voice/turn failed: %s", exc)
-        body = json.dumps(
-            {
-                "ok": False,
-                "stage": "voice_turn",
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-            },
-            ensure_ascii=False,
-        )
-        return Response(
-            content=body,
-            media_type="application/json; charset=utf-8",
+        return error_response(
+            stage="voice_turn",
+            exc=exc,
             status_code=500,
         )
 
-
 @router.post("/voice/interrupt")
 def interrupt_voice(req: InterruptRequest):
-    runtime, error_response = _runtime_or_error("/voice/interrupt")
-    if error_response is not None:
-        return error_response
+    runtime, error_response_value = _runtime_or_error("/voice/interrupt")
+    if error_response_value is not None:
+        return error_response_value
 
     try:
         result = runtime.interrupt_speaking(reason=req.reason)
-        body = json.dumps(
-            {
-                "ok": True,
-                "result": result,
-                "speaking_state": runtime.get_speaking_state().model_dump(),
-            },
-            ensure_ascii=False,
+        return ok_response(
+            result=result,
+            speaking_state=runtime.get_speaking_state().model_dump(),
         )
-        return Response(
-            content=body,
-            media_type="application/json; charset=utf-8",
-        )
+
     except Exception as exc:
         logger.exception("/voice/interrupt failed: %s", exc)
-        body = json.dumps(
-            {
-                "ok": False,
-                "stage": "voice_interrupt",
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-            },
-            ensure_ascii=False,
-        )
-        return Response(
-            content=body,
-            media_type="application/json; charset=utf-8",
+        return error_response(
+            stage="voice_interrupt",
+            exc=exc,
             status_code=500,
         )
 
 
 @router.get("/voice/state")
 def voice_state():
-    runtime, error_response = _runtime_or_error("/voice/state")
-    if error_response is not None:
-        return error_response
+    runtime, error_response_value = _runtime_or_error("/voice/state")
+    if error_response_value is not None:
+        return error_response_value
 
     try:
-        speaking_state = runtime.get_speaking_state()
-        body = json.dumps(
-            {
-                "ok": True,
-                "stream_state": runtime.get_stream_state().model_dump(),
-                "speaking_state": speaking_state.model_dump(),
-                "current_audio_queue": runtime.voice_session_controller.audio_playback_dispatcher.audio_player.get_current_playlist()
-                if runtime.voice_session_controller is not None
-                else [],
-            },
-            ensure_ascii=False,
-            default=str,
+        current_audio_queue = (
+            runtime.voice_session_controller.audio_playback_dispatcher.audio_player.get_current_playlist()
+            if runtime.voice_session_controller is not None
+            else []
         )
-        return Response(
-            content=body,
-            media_type="application/json; charset=utf-8",
+
+        return ok_response(
+            stream_state=runtime.get_stream_state().model_dump(),
+            speaking_state=runtime.get_speaking_state().model_dump(),
+            current_audio_queue=current_audio_queue,
         )
+
     except Exception as exc:
         logger.exception("/voice/state failed: %s", exc)
-        body = json.dumps(
-            {
-                "ok": False,
-                "stage": "voice_state",
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-            },
-            ensure_ascii=False,
-        )
-        return Response(
-            content=body,
-            media_type="application/json; charset=utf-8",
+        return error_response(
+            stage="voice_state",
+            exc=exc,
             status_code=500,
         )

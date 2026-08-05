@@ -3,10 +3,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
 from starlette.staticfiles import StaticFiles
 
+from apps.api.exception_handlers import (
+    http_exception_handler,
+    validation_exception_handler,
+)
 from cloud.config import cloud_settings
 from cloud.middleware import cloud_guard_middleware
 from apps.api.middleware import request_logging_middleware
@@ -34,6 +39,8 @@ logger = logging.getLogger("aiagent.api")
 
 app = FastAPI(title="aiagent api", version="1.0.0")
 
+app.add_exception_handler(HTTPException, http_exception_handler) #type: ignore
+app.add_exception_handler(RequestValidationError, validation_exception_handler) #type: ignore
 app.middleware("http")(cloud_guard_middleware)
 app.middleware("http")(request_logging_middleware)
 

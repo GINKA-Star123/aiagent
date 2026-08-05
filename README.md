@@ -77,6 +77,8 @@ ENABLE_MOCK_ASR=true
 
 真实模型、RAG、Vision、Memory、TTS、ASR、Live2D 的详细配置见 [docs/config-reference.md](docs/config-reference.md)。
 
+腾讯云部署配置从 `cloud.tencent.example.env` 复制到 `cloud.tencent.env` 后再替换占位符；真实 `cloud.tencent.env` 不提交。
+
 ## 启动后端 API
 
 ```powershell
@@ -152,14 +154,21 @@ Qt 端适合本地调试聊天、运行时快照、Live2D payload 和诊断结�
 
 | 路径 | 用途 |
 | --- | --- |
+| `GET /live` | 进程存活检查 |
 | `GET /health` | 健康检查 |
+| `GET /ready` | Readiness 检查 |
 | `GET /runtime/diagnostics` | 运行时诊断 |
+| `GET /runtime/capabilities` | Runtime 能力状态 |
 | `POST /chat` | 文本聊天 |
 | `POST /chat/multimodal` | 图片 + 文本聊天 |
+| `POST /session/open` | 会话开场和 presence 初始化 |
 | `GET /memory/user/{user_id}` | 读取用户记忆 |
 | `DELETE /memory/user/{user_id}` | 清空用户记忆 |
 | `POST /voice/transcribe` | 上传音频转写 |
 | `POST /voice/turn` | 语音回合 |
+| `POST /voice/realtime/start` | 实时语音会话开始 |
+| `GET /voice/realtime/state/{call_id}` | 实时语音会话状态 |
+| `POST /voice/realtime/end` | 实时语音会话结束 |
 | `POST /vision/analyze` | 图片分析 |
 | `POST /vision/characters/rebuild` | 重建角色图库索引 |
 | `GET /knowledge/stats` | RAG 状态 |
@@ -175,10 +184,17 @@ Python 侧测试：
 
 ```powershell
 cd F:\aiagent
-pytest
+.\.venv\Scripts\python.exe -m pytest -q tests\unit tests\api tests\smoke -p no:cacheprovider
 ```
 
-当前 `tests/` 目录如果没有可见的 `.py` 测试源码，可以跳过 `pytest`，优先使用下面的运行时诊断和 API smoke 脚本。
+RAG 检索质量基线：
+
+```powershell
+cd F:\aiagent
+.\.venv\Scripts\python.exe -m pytest -q tests\rag -p no:cacheprovider
+```
+
+`tests\rag` 依赖 `data\knowledge\public`。如果本地没有知识库目录，该组测试会按条件跳过。
 
 运行时诊断：
 
@@ -199,6 +215,8 @@ powershell -ExecutionPolicy Bypass -File scripts\test_live2d_payload.ps1
 ```
 
 Flutter 侧测试见“Flutter 手机端”章节。
+
+V1.0 最终 smoke 指令见 [docs/v1-final-smoke.md](docs/v1-final-smoke.md)，发布前勾选项见 [docs/v1-release-checklist.md](docs/v1-release-checklist.md)。
 
 ## 数据与资源
 
@@ -252,6 +270,6 @@ apps/flutter_client/assets/live2d_web/
 
 - [docs/config-reference.md](docs/config-reference.md)
 - [docs/api-observability.md](docs/api-observability.md)
-- [docs/project-file-inventory.md](docs/project-file-inventory.md)
-- [docs/project-overview-next-stage.md](docs/project-overview-next-stage.md)
-- [stage.md](stage.md)
+- [docs/next-stage-optimization-roadmap.md](docs/next-stage-optimization-roadmap.md)
+- [docs/v1-final-smoke.md](docs/v1-final-smoke.md)
+- [docs/v1-release-checklist.md](docs/v1-release-checklist.md)

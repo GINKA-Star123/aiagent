@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 from PIL import Image
 
+from aiagent.vision.confidence_policy import VisionConfidencePolicy
 from aiagent.vision.character_retriever import CharacterRetriever
 from aiagent.vision.image_store import ImageStore, StoredImage
 from aiagent.graphs.graph_model import (
@@ -20,6 +21,7 @@ from aiagent.graphs.graph_model import (
     VisionLive2DSuggestion,
     VisionMemoryCandidate,
     VisionSafetyResult,
+    VisionImageType,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,8 @@ class VisionService:
         base_url: str = "",
         timeout_seconds: float = 60.0,
         confident_score: float = 0.78,
+        scene_confident_score: float = 0.55,
+        low_confidence_margin: float = 0.12,
     ) -> None:
         self.image_store = image_store
         self.character_retriever = character_retriever
@@ -45,6 +49,11 @@ class VisionService:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.confident_score = confident_score
+        self.confidence_policy = VisionConfidencePolicy(
+            character_confident_score=confident_score,
+            scene_confident_score=scene_confident_score,
+            low_margin=low_confidence_margin,
+        )
 
     def analyze_upload(
         self,
@@ -157,6 +166,8 @@ B. 日常图片：
 5. 如果是日常图，recognized_characters 可以为空。
 6. confidence 必须是 0 到 1 之间的小数。
 7. 输出必须是 JSON，不要输出 Markdown，不要输出解释正文。
+8. 顶层 confidence 表示你对图片整体理解的把握；角色身份置信度仍写在 recognized_characters 内。
+9. 如果你不确定角色身份，recognized_characters 可以为空；不要为了迎合候选角色而强行确认。
 
 用户附加说明：
 {user_prompt or "无"}
@@ -168,6 +179,8 @@ B. 日常图片：
 {{
   "image_type": "character|daily|screenshot|document|food|travel|landscape|object|unknown",
   "user_intent": "用户可能想让你做什么，例如识别角色、描述照片、分析食物、读图中文字、判断场景等",
+  "confidence": 0.0,
+  "confidence_reason": ""说明你对图片类型、摘要、OCR、场景理解的整体把握；不要把它和角色身份置信度混为一谈""
   "summary": "图片总体描述",
   "objects": ["物体1", "物体2"],
   "scene": "简短场景描述",
@@ -261,10 +274,13 @@ B. 日常图片：
                         "evidence": best.evidence,
                     }
                 )
+        best_confidence = recognized[0]["confidence"] if recognized else 0.2
 
         return {
             "image_type": "character" if recognized else "unknown",
             "user_intent": "mock vision 仅验证角色图库召回，不做通用图片理解",
+            "confidence": best_confidence,
+            "confidence_reason": "mock provider 仅根据角色图库检索分数生成置信度",
             "summary": "已完成图片角色图库检索。当前为 mock vision，只根据图像向量候选判断。",
             "objects": [],
             "scene": "unknown",
@@ -309,20 +325,30 @@ B. 日常图片：
         user_prompt: str,
         user_id: str,
     ) -> VisionAnalyzeResult:
-        recognized = self._normalize_model_characters(
-            raw_items=model_data.get("recognized_characters", []),
-            retrieved_candidates=candidates,
+        character_candidates = self._normalize_model_characters(
+        raw_items=model_data.get("recognized_characters", []),
+        retrieved_candidates=candidates,
+        )
+        model_confidence = self._safe_float(model_data.get("confidence"), 0.0)
+        model_reason = str(model_data.get("confidence_reason", "")).strip()
+
+        image_type, recognized, confidence_report, low_policy = self.confidence_policy.evaluate(
+        image_type=str(model_data.get("image_type", "unknown")),
+        model_confidence=model_confidence,
+        model_reason=model_reason,
+        character_candidates=character_candidates,
         )
 
-        best_confidence = max([item.confidence for item in recognized], default=0.0)
-        is_confident = best_confidence >= self.confident_score
+        memory = VisionMemoryCandidate(**(model_data.get("memory") or {}))
+        if low_policy.defer_memory_hint and memory.should_consider:
+            memory = VisionMemoryCandidate(
+                should_consider=False,
+                reason=f"low_confidence_deferred: {memory.reason or low_policy.reason}",
+            )
 
-        if not is_confident:
-            recognized = [
-                item
-                for item in recognized
-                if item.confidence >= max(self.confident_score - 0.12, 0.0)
-            ]
+        live2d = VisionLive2DSuggestion(**(model_data.get("live2d") or {}))
+        if low_policy.suppress_live2d_override:
+            live2d = VisionLive2DSuggestion()   
 
         return VisionAnalyzeResult(
             image_id=stored.image_id,
@@ -330,7 +356,7 @@ B. 日常图片：
             width=stored.width,
             height=stored.height,
             format=stored.format,
-            image_type=str(model_data.get("image_type", "unknown")).strip() or "unknown",
+            image_type=image_type,
             user_intent=str(model_data.get("user_intent", "unknown")).strip() or "unknown",
             summary=str(model_data.get("summary", "")).strip(),
             objects=[str(item).strip() for item in model_data.get("objects", []) if str(item).strip()],
@@ -338,12 +364,15 @@ B. 日常图片：
             daily_scene=DailySceneResult(**(model_data.get("daily_scene") or {})),
             ocr_text=[str(item).strip() for item in model_data.get("ocr_text", []) if str(item).strip()],
             mood=str(model_data.get("mood", "")).strip(),
-            recognized_characters=recognized,
-            is_confident=is_confident,
-            confidence=best_confidence,
+            character_candidates=character_candidates[:5],
+            recognized_characters=recognized[:3],
+            is_confident=not low_policy.active,
+            confidence=confidence_report.score,
+            confidence_report=confidence_report,
+            low_confidence_policy=low_policy,
             safety=VisionSafetyResult(**(model_data.get("safety") or {})),
-            memory=VisionMemoryCandidate(**(model_data.get("memory") or {})),
-            live2d=VisionLive2DSuggestion(**(model_data.get("live2d") or {})),
+            memory=memory,
+            live2d=live2d,
             raw_model_output=str(model_data.get("_raw_model_output", "")),
             metadata={
                 "user_id": user_id,
@@ -355,9 +384,10 @@ B. 日常图片：
                 "vision_provider": self.provider,
                 "vision_model": self.model,
                 "confident_score": self.confident_score,
+                "vision_confidence_level": confidence_report.level,
+                "vision_low_confidence_active": low_policy.active,
             },
-        )
-
+)
     def _normalize_model_characters(
         self,
         raw_items: Any,
@@ -484,3 +514,11 @@ B. 日常图片：
             raise ValueError("Vision model JSON root is not an object.")
 
         return parsed
+
+    def _safe_float(self,value:Any, fallback:float = 0.0) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return fallback
+
+        return min(max(number,0.0),1.0)

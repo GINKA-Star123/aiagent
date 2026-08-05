@@ -40,6 +40,11 @@ class MemoryPolicyLLMService:
         )
 
         decision = self._parse(raw)
+        rule_decision = self._rule_based_decision(user_text)
+
+        if rule_decision is not None and not decision.should_store:
+            decision = rule_decision
+            
         decision.metadata["planner_should_store_memory"] = planner_should_store_memory
         return decision
 
@@ -85,6 +90,8 @@ planner 信号：
 - 单轮问题答案
 - 模糊、无法复用的信息
 - 助手自己的临时表达
+- API key、密码、token、身份证号、银行卡号、精确住址、联系方式等敏感信息
+- 用户没有明确要求记住的医疗、财务、法律等高度隐私信息
 
 已有长期记忆：
 {existing_memory_context or "无长期记忆。"}
@@ -100,8 +107,12 @@ planner 信号：
   "should_store": true,
   "category": "identity|preference|relationship|goal|habit|boundary|event|other",
   "importance": "low|medium|high",
+  "confidence": 0.0,
   "reason": "一句话说明",
-  "memory_hint": "如果写入，概括应该记住的事实；否则为空"
+  "facts": [
+    "每条都是独立、简短、可复用的中文长期事实"
+  ],
+  "memory_hint": "兼容旧字段：如果 facts 非空，可以用一句话概括；否则为空"
 }}
 """.strip()
 
@@ -109,21 +120,24 @@ planner 信号：
         try:
             data = self._extract_json(raw)
             should_store = bool(data.get("should_store", False))
+
+            facts = self._normalize_facts(data.get("facts"))
             memory_hint = str(data.get("memory_hint", "")).strip()
 
-            if should_store and not memory_hint:
+            if facts and not memory_hint:
+                memory_hint = "；".join(facts)
+
+            if should_store and not memory_hint and not facts:
                 should_store = False
 
             return MemoryWriteDecision(
                 should_store=should_store,
                 category=self._safe_enum(MemoryCategory, data.get("category"), MemoryCategory.OTHER),
-                importance=self._safe_enum(
-                    MemoryImportance,
-                    data.get("importance"),
-                    MemoryImportance.MEDIUM,
-                ),
+                importance=self._safe_enum(MemoryImportance, data.get("importance"), MemoryImportance.MEDIUM),
                 reason=str(data.get("reason", "")).strip(),
                 memory_hint=memory_hint,
+                facts=facts,
+                confidence=self._safe_float(data.get("confidence"), 0.0),
                 metadata={"raw_policy_response": raw},
             )
         except Exception as exc:
@@ -164,3 +178,58 @@ planner 信号：
             return enum_cls(str(value))
         except Exception:
             return fallback
+
+    def _normalize_facts(self,value:Any) ->list[str]:
+        if isinstance(value,list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value,str) and value.strip():
+            return [str(value).strip()]
+        return []
+
+    def _safe_float(self, value: Any, fallback:float) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return fallback
+
+    def _rule_based_decision(self,user_text:str) -> MemoryWriteDecision | None:
+        text =user_text.strip()
+        if not text:
+            return None
+
+        explicit_markers = [
+        "记住",
+        "帮我记",
+        "以后别忘",
+        "下次提醒",
+        "我喜欢",
+        "我不喜欢",
+        "我讨厌",
+        "我的习惯",
+        "我希望你",
+        "不要再",
+        ]
+
+        if not any(marker in text for marker in explicit_markers):
+            return None
+
+        category = MemoryCategory.OTHER
+        if any(marker in text for marker in ["我喜欢", "我不喜欢", "我讨厌"]):
+            category = MemoryCategory.PREFERENCE
+        elif any(marker in text for marker in ["我的习惯", "我每天", "我经常"]):
+            category = MemoryCategory.HABIT
+        elif any(marker in text for marker in ["我希望你", "不要再", "别叫我", "叫我"]):
+            category = MemoryCategory.BOUNDARY
+
+        return MemoryWriteDecision(
+            should_store=True,
+            category=category,
+            importance=MemoryImportance.MEDIUM,
+            reason="rule_based_explicit_memory_request",
+            memory_hint=text,
+            facts=[text],
+            confidence=0.55,
+            metadata={
+                "memory_policy_source": "rule_based",
+            },
+        )

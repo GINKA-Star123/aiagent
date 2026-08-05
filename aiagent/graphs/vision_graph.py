@@ -4,7 +4,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from aiagent.graphs.graph_model import VisionAnalyzeResult
+from aiagent.graphs.graph_model import VisionAnalyzeResult, VisionLive2DSuggestion
 from aiagent.services.vision_service import VisionService
 
 
@@ -95,37 +95,68 @@ class VisionRunner:
                 user_prompt=user_prompt,  # type: ignore
             )
 
+        profile = result.confidence_report
+        policy = result.low_confidence_policy
+
         return {
-            "vision_result": result,
-            "metadata": {
-                "vision_graph": "analyzed",
-                "vision_image_id": result.image_id,
-                "vision_image_type": result.image_type,
-                "vision_user_intent": result.user_intent,
-                "vision_confidence": result.confidence,
-                "vision_is_confident": result.is_confident,
-                "vision_character_count": len(result.recognized_characters),
-                "vision_character_names": ", ".join(
-                    item.name for item in result.recognized_characters[:3]
-                ),
-            },
-        }
+        "vision_result": result,
+        "metadata": {
+            "vision_graph": "analyzed",
+            "vision_image_id": result.image_id,
+            "vision_image_type": result.image_type,
+            "vision_user_intent": result.user_intent,
+            "vision_confidence": result.confidence,
+            "vision_confidence_level": profile.level,
+            "vision_confidence_reason": profile.reason,
+            "vision_is_confident": result.is_confident,
+            "vision_low_confidence_active": policy.active,
+            "vision_avoid_identity_assertion": policy.avoid_identity_assertion,
+            "vision_defer_memory_hint": policy.defer_memory_hint,
+            "vision_suppress_live2d_override": policy.suppress_live2d_override,
+            "vision_confirmed_character_count": len(result.recognized_characters),
+            "vision_candidate_character_count": len(result.character_candidates),
+            "vision_character_names": ", ".join(
+                item.name for item in result.recognized_characters[:3]
+            ),
+        },
+    }
 
     def _build_chat_context_node(self, state: VisionGraphState) -> VisionGraphState:
         result = state.get("vision_result")
         if not result:
             raise RuntimeError("Vision result is not configured.")
+        profile = result.confidence_report
+        policy = result.low_confidence_policy
 
-        character_lines: list[str] = []
+        confirmed_lines: list[str] = []
         for item in result.recognized_characters[:3]:
             evidence = "；".join(item.evidence[:4])
-            character_lines.append(
-                f"- {item.name} ({item.character_id}), "
-                f"confidence={item.confidence:.3f}, evidence={evidence}"
+            confirmed_lines.append(
+                f"- 已确认：{item.name} ({item.character_id})，confidence={item.confidence:.3f}，evidence={evidence}"
             )
+        candidate_lines: list[str] = []
+        if policy.expose_candidates:
+            for item in result.character_candidates[:3]:
+                evidence = "；".join(item.evidence[:3])
+                candidate_lines.append(
+                    f"- 候选但未确认：{item.name} ({item.character_id})，confidence={item.confidence:.3f}，evidence={evidence}"
+                )
 
-        character_text = "\n".join(character_lines) if character_lines else "未能高置信度确认具体角色。"
+        character_text = "\n".join(confirmed_lines) if confirmed_lines else "没有达到确认阈值的角色。"
+        if candidate_lines:
+            character_text = character_text + "\n\n候选角色（仅供保守参考，不可强行确认）：\n" + "\n".join(candidate_lines)
 
+        confidence_text = f"""
+        - score: {profile.score:.3f}
+        - level: {profile.level}
+        - threshold: {profile.threshold:.3f}
+        - source: {profile.source}
+        - reason: {profile.reason}
+        - low_confidence_active: {policy.active}
+        - avoid_identity_assertion: {policy.avoid_identity_assertion}
+        - reply_instruction: {policy.reply_instruction}
+        """.strip()
+        
         daily = result.daily_scene
         daily_text = f"""
 - scene_type: {daily.scene_type}
@@ -172,16 +203,15 @@ OCR:
 氛围:
 {result.mood or "未知"}
 
-识图置信度:
-- is_confident: {result.is_confident}
-- confidence: {result.confidence:.3f}
+视觉可信度策略:
+{confidence_text}
 
-使用规则:
+使用规则：
 1. 你可以根据视觉上下文回答用户关于图片的问题。
-2. 如果 image_type 是 daily、food、travel、landscape、object、screenshot 或 document，要自然描述图片内容，不要强行往角色识别上带。
-3. 如果 image_type 是 character，优先参考“识别到的角色”。
-4. 如果 is_confident=false，不要强行断言角色身份。
-5. 如果识别到角色但置信度不高，要用“像是 / 可能是 / 我不敢完全确定”这类保守表达。
+2. 如果 image_type 是 daily、food、travel、landscape、object、screenshot 或 document，要优先自然描述图片内容，不要强行往角色识别上带。
+3. 如果存在“已确认角色”，可以正常引用角色名。
+4. 如果只有“候选角色”，必须使用“可能像是、看起来有点像、我不完全确定”这类保守表达。
+5. 如果 low_confidence_active=true，不要把候选角色说成已经确认。
 6. 不要编造图片里没有的信息。
 7. 不要推断真实人物身份。
 """.strip()
@@ -205,7 +235,19 @@ OCR:
 
     def _build_memory_hint_node(self, state: VisionGraphState) -> VisionGraphState:
         result = state["vision_result"]  # type: ignore
-
+        if result.low_confidence_policy.defer_memory_hint:
+            metadata = dict(state.get("metadata", {}))
+            metadata.update(
+                {
+                    "vision_memory_should_consider": False,
+                    "vision_memory_deferred_by_confidence": True,
+                    "vision_memory_reason": result.low_confidence_policy.reason,
+                }
+            )
+            return {
+                "memory_hint": "",
+                "metadata": metadata,
+            }
         if not result.memory.should_consider:
             memory_hint = ""
         else:
@@ -234,7 +276,11 @@ OCR:
 
     def _build_live2d_suggestion_node(self, state: VisionGraphState) -> VisionGraphState:
         result = state["vision_result"]  # type: ignore
-        suggestion = result.live2d.model_dump(mode="json")
+        if result.low_confidence_policy.suppress_live2d_override:
+            suggestion = VisionLive2DSuggestion().model_dump(mode="json")
+        else:
+            suggestion = result.live2d.model_dump(mode="json")
+
 
         metadata = dict(state.get("metadata", {}))
         metadata.update(
@@ -243,6 +289,7 @@ OCR:
                 "vision_live2d_emotion": result.live2d.suggested_emotion,
                 "vision_live2d_expression": result.live2d.suggested_expression,
                 "vision_live2d_motion": result.live2d.suggested_motion,
+                "vision_live2d_suppressed_by_confidence": result.low_confidence_policy.suppress_live2d_override,
             }
         )
 

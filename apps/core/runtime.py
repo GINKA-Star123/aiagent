@@ -3,14 +3,18 @@
 CoreRuntime 是 API 路由和本地工具共用的门面。它把 HTTP 友好的方法调用
 转换成 InputEvent，再交给 dispatcher 和图流程执行推理。
 """
+from typing import Any
+from apps.core.capabilities import CapabilityRegistry
 
 from aiagent.brain.agent_core import AgentCore
 from aiagent.brain.dialogue_manager import DialogueManager
 from aiagent.graphs.memory_graph import MemoryRunner
 from aiagent.graphs.vision_graph import VisionRunner
+from aiagent.knowledge.query_normalizer import normalize_rag_query
 from aiagent.knowledge.rag_pipeline import RAGPipeline
 from aiagent.graphs.graph_model import VisionAnalyzeResult
 from aiagent.memory.mem0_memory import Mem0LongTermMemory
+from aiagent.memory.memory_layers import infer_memory_layer
 from aiagent.orchestrator.dispatcher import EventDispatcher
 from aiagent.orchestrator.interrupt_manager import InterruptManager
 from aiagent.perception.asr_listener import ASRListener
@@ -19,11 +23,19 @@ from aiagent.perception.voice_session_controller import VoiceSessionController
 from aiagent.perception.voice_turn_manager import VoiceTurnManager
 from aiagent.schemas.inputs import InputEvent, InputSource, InputAttachment
 from aiagent.schemas.outputs import OutputEvent
+from aiagent.schemas.memory import (
+    MemoryCategory,
+    MemoryEditRequest,
+    MemoryImportance,
+    MemoryLayer,
+    MemoryMergeRequest,
+)
 from aiagent.services.llm_service import LLMService
 from aiagent.services.vision_service import VisionService
 from aiagent.state.conversation_state import ConversationState
 from aiagent.state.speaking_state import SpeakingState
 from aiagent.state.stream_state import StreamingState
+from aiagent.live2d.payload_contract import normalize_live2d_payload
 
 
 class CoreRuntime:
@@ -48,6 +60,7 @@ class CoreRuntime:
         voice_session_controller: VoiceSessionController | None = None,
         vision_service: VisionService | None = None,
         vision_runner: VisionRunner | None = None,
+        capabilities: CapabilityRegistry | None = None,
     ) -> None:
         self.dispatcher = dispatcher
         self.agent_core = agent_core
@@ -66,6 +79,7 @@ class CoreRuntime:
         self.voice_session_controller = voice_session_controller
         self.vision_service = vision_service
         self.vision_runner = vision_runner
+        self.capabilities = capabilities or CapabilityRegistry()
 
     def handle_input_event(self, event: InputEvent) -> OutputEvent:
         """把标准化后的输入事件交给编排器处理。"""
@@ -207,10 +221,36 @@ class CoreRuntime:
         return self.rag_pipeline.build_status()
 
     def search_knowledge(self, query: str, top_k: int = 4) -> list[dict]:
-        return self.rag_pipeline.debug_retrieve(query=query, top_k=top_k)
+        normalized_query = normalize_rag_query(query)
+        return self.rag_pipeline.debug_retrieve(query=normalized_query, top_k=top_k)
 
     def get_knowledge_prompt_context(self, query: str, top_k: int = 4) -> str:
-        return self.rag_pipeline.format_for_prompt(query=query, top_k=top_k)
+        normalized_query = normalize_rag_query(query)
+        return self.rag_pipeline.format_for_prompt(query=normalized_query, top_k=top_k)
+
+    def inspect_knowledge(self,query:str,top_k: int =4) -> dict:
+        normalized_query = normalize_rag_query(query)
+
+        if hasattr(self.rag_pipeline,"inspect"):
+            return self.rag_pipeline.inspect(query=normalized_query, top_k=top_k)
+        
+        chunks = self.rag_pipeline.debug_retrieve(
+        query=normalized_query,
+        top_k=top_k,
+    )
+        return {
+            "ok": True,
+            "query": normalized_query,
+            "top_k": top_k,
+            "should_inject": bool(chunks),
+            "confidence": {},
+            "citations": [],
+            "chunks": chunks,
+            "prompt_context": self.rag_pipeline.format_for_prompt(
+                query=normalized_query,
+                top_k=top_k,
+            ),
+        }
 
     def get_speaking_state(self) -> SpeakingState:
         if self.voice_session_controller is not None:
@@ -222,28 +262,56 @@ class CoreRuntime:
             self.voice_session_controller.audio_playback_dispatcher.refresh_state()
         return self.stream_state
 
-    def get_user_profile_memories(self, user_id: str) -> list[dict]:
-        return []
+    def get_user_profile_memories(self, user_id: str, limit: int = 20) -> list[dict]:
+        records = self.long_term_memory.list_profile_memories(
+            user_id=user_id,
+            limit=limit,
+        )
+        return [ # type: ignore
+            record.model_dump(mode="json") if hasattr(record, "model_dump") else record
+            for record in records
+        ]
 
     def get_long_term_memories(self, user_id: str, limit: int = 20) -> list[dict]:
-        return self.long_term_memory.get_all(user_id=user_id, limit=limit)
-
-    def search_memories(self, user_id: str, query: str, limit: int = 10) -> dict:
+        records = self.long_term_memory.list_records(user_id=user_id, limit=limit)
+        return [ # type: ignore
+            record.model_dump(mode="json") if hasattr(record, "model_dump") else record
+            for record in records
+        ]
+    def search_memories(
+        self,
+        user_id: str,
+        query: str,
+        limit: int = 10,
+        layer: str | None = None,
+    ) -> dict:
         hits = self.long_term_memory.search(user_id=user_id, query=query, limit=limit)
+        target_layer = MemoryLayer(str(layer)) if layer else None
+        filtered_hits = []
+
+        for hit in hits:
+            hit_layer = infer_memory_layer(hit.metadata.get("category"), hit.metadata)
+            if target_layer is not None and hit_layer != target_layer:
+                continue
+            filtered_hits.append((hit, hit_layer))
+
         return {
             "query": query,
+            "memory_layer": target_layer.value if target_layer else "",
             "profile_memories": [],
             "long_term_memories": [
                 {
                     "id": hit.id,
                     "memory": hit.memory,
                     "score": hit.score,
+                    "layer": hit_layer.value,
+                    "memory_layer": hit_layer.value,
                     "metadata": hit.metadata,
                     "relations": hit.relations,
                     "created_at": hit.created_at,
                     "updated_at": hit.updated_at,
                 }
-                for hit in hits
+                for hit, hit_layer in filtered_hits
             ],
         }
 
@@ -264,6 +332,75 @@ class CoreRuntime:
         self.agent_core.main_runner.clear_thread(user_id)
         return {"status": "cleared", "user_id": user_id}
 
+    def get_memory_snapshot(self, user_id: str, limit: int = 200) -> dict:
+        snapshot = self.long_term_memory.get_snapshot(
+            user_id=user_id,
+            limit=limit,
+        )
+        return snapshot.model_dump(mode="json") if hasattr(snapshot, "model_dump") else snapshot # type: ignore
+
+
+    def get_user_memory_layer(
+        self,
+        user_id: str,
+        layer: str,
+        limit: int = 100,
+    ) -> dict:
+        target_layer = MemoryLayer(str(layer))
+        records = self.long_term_memory.list_layer_records(
+            user_id=user_id,
+            layer=target_layer,
+            limit=limit,
+        )
+
+        memories = [
+            record.model_dump(mode="json") if hasattr(record, "model_dump") else record
+            for record in records
+        ]
+
+        return {
+            "user_id": user_id,
+            "layer": target_layer.value,
+            "count": len(memories),
+            "memories": memories,
+        }
+
+
+    def delete_user_memory_item(self, user_id: str, memory_id: str) -> dict:
+        records = self.long_term_memory.list_records(
+            user_id=user_id,
+            limit=1000,
+        )
+
+        owned = any(
+            getattr(record, "id", "") == memory_id
+            for record in records
+        )
+
+        if not owned:
+            return {
+                "ok": False,
+                "status": "not_found",
+                "user_id": user_id,
+                "memory_id": memory_id,
+                "reason": "memory_not_found_or_not_owned_by_user",
+            }
+
+        result = self.long_term_memory.delete_memory(memory_id)
+        return {
+            "ok": True,
+            "status": "deleted",
+            "user_id": user_id,
+            "memory_id": memory_id,
+            "result": result,
+        }
+
+
+    def delete_user_memory_layer(self, user_id: str, layer: str) -> dict:
+        return self.long_term_memory.delete_layer(
+            user_id=user_id,
+            layer=MemoryLayer(str(layer)),
+        )
     def reset_dialogue_context(self) -> dict[str, str]:
         self.agent_core.clear_runtime_context()
         self.conversation_state.clear()
@@ -425,4 +562,81 @@ class CoreRuntime:
         live2d["character"] = character
         live2d["scene"] = scene
 
-        return live2d
+        return normalize_live2d_payload(
+                live2d,
+                metadata={
+                    "source": "runtime_vision_merge",
+                },
+            )
+
+    def get_capability_snapshot(self) ->dict[str,Any]:
+        return self.capabilities.snapshot()
+
+    def get_user_memory_preference(self, user_id: str) -> dict:
+        pref = self.memory_runner.get_user_preference(user_id=user_id)
+        return pref.model_dump(mode="json")
+
+    def set_user_memory_preference(
+        self,
+        user_id: str,
+        long_term_enabled: bool,
+        reason: str = "",
+    ) -> dict:
+        pref = self.memory_runner.set_user_preference(
+            user_id=user_id,
+            long_term_enabled=long_term_enabled,
+            reason=reason,
+        )
+        return pref.model_dump(mode="json")
+
+    def edit_user_memory_item(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        request: MemoryEditRequest,
+    ) -> dict:
+        return self.long_term_memory.update_memory(
+            user_id=user_id,
+            memory_id=memory_id,
+            memory_text=request.memory,
+            category=request.category,
+            importance=request.importance,
+            layer=request.layer,
+            pinned=request.pinned,
+            reason=request.reason,
+            metadata=request.metadata,
+        )
+
+    def set_user_memory_pinned(
+        self,
+        *,
+        user_id: str,
+        memory_id: str,
+        pinned: bool,
+        reason: str = "",
+    ) -> dict:
+        return self.long_term_memory.set_memory_pinned(
+            user_id=user_id,
+            memory_id=memory_id,
+            pinned=pinned,
+            reason=reason,
+        )
+
+    def merge_user_memories(
+        self,
+        *,
+        user_id: str,
+        request: MemoryMergeRequest,
+    ) -> dict:
+        return self.long_term_memory.merge_memories(
+            user_id=user_id,
+            memory_ids=request.memory_ids,
+            merged_memory=request.merged_memory,
+            category=request.category,
+            importance=request.importance,
+            layer=request.layer,
+            pinned=request.pinned,
+            reason=request.reason,
+            metadata=request.metadata,
+        )

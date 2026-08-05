@@ -6,6 +6,16 @@ from langgraph.graph import END, START, StateGraph
 
 from aiagent.graphs.graph_model import RAGGraphInput, RAGGraphResult
 
+from aiagent.graphs.metadata_utils import (
+    mark_stage_done,
+    mark_stage_failed,
+    mark_stage_skipped,
+    metadata_strings,
+    now_perf,
+)
+from aiagent.knowledge.query_normalizer import normalize_rag_query
+from aiagent.knowledge.rag_citations import build_rag_citations, citations_to_metadata
+from aiagent.knowledge.rag_confidence import evaluate_rag_confidence
 
 class RAGGraphState(TypedDict, total=False):
     input: RAGGraphInput
@@ -14,6 +24,8 @@ class RAGGraphState(TypedDict, total=False):
     raw_debug: list[dict[str, Any]]
     filtered_context: list[str]
     filtered_debug: list[dict[str, Any]]
+    citations: list[dict[str, Any]]
+    confidence: dict[str, Any]
     result: RAGGraphResult
     metadata: dict[str, str]
 
@@ -68,6 +80,7 @@ class RAGRunner:
         return result["result"]
 
     def _build_query_node(self, state: RAGGraphState) -> dict[str, object]:
+        started_at = now_perf()
         graph_input = state["input"] # type: ignore
         query = self._build_search_query(
             user_text=graph_input.user_text,
@@ -75,39 +88,71 @@ class RAGRunner:
             state_topic=graph_input.state_topic,
         )
 
+        metadata = mark_stage_done(
+        {
+            "rag_graph_status": "started",
+            "rag_query_source": "planner+fallback"
+            if graph_input.planner_query.strip()
+            else "fallback",
+            "planner_should_retrieve": graph_input.planner_should_retrieve,
+        },
+        "rag_build_query",
+        started_at,
+        rag_query=query,
+    )
+
         return {
             "query": query,
-            "metadata": {
-                "rag_graph": "started",
-                "rag_query_source": "planner+fallback"
-                if graph_input.planner_query.strip()
-                else "fallback",
-                "planner_should_retrieve": str(graph_input.planner_should_retrieve),
-            },
+            "metadata": metadata,
         }
 
     def _retrieve_node(self, state: RAGGraphState) -> dict[str, object]:
+        graph_input = state["input"] # type: ignore
+        if not graph_input.planner_should_retrieve:
+            metadata = mark_stage_skipped(
+                state.get("metadata", {}),
+                "rag_retrieve",
+                "planner_should_retrieve_false",
+            )
+            return {
+                "raw_context": [],
+                "raw_debug": [],
+                "metadata": metadata,
+            }
+
+        started_at = now_perf()
         query = state["query"] # type: ignore
         metadata = dict(state.get("metadata", {}))
 
         try:
             raw_context = self.rag_pipeline.search(query=query, top_k=self.top_k)
             raw_debug = self.rag_pipeline.debug_retrieve(query=query, top_k=self.top_k)
-            metadata["rag_retrieve"] = "done"
-            metadata["rag_raw_count"] = str(len(raw_context))
-            return {
-                "raw_context": raw_context,
-                "raw_debug": raw_debug,
-                "metadata": metadata,
-            }
         except Exception as exc:
-            metadata["rag_retrieve"] = "failed"
-            metadata["rag_error"] = str(exc)
+            metadata = mark_stage_failed(
+                metadata,
+                "rag_retrieve",
+                started_at,
+                exc,
+            )
             return {
                 "raw_context": [],
                 "raw_debug": [],
                 "metadata": metadata,
             }
+
+        metadata = mark_stage_done(
+            metadata,
+            "rag_retrieve",
+            started_at,
+            rag_raw_count = len(raw_context),
+        )
+
+        return {
+            "raw_context": raw_context,
+            "raw_debug": raw_debug,
+            "metadata": metadata,
+        }
+         
 
     def _filter_relevance_node(self, state: RAGGraphState) -> dict[str, object]:
         raw_context = list(state.get("raw_context", []))
@@ -115,44 +160,63 @@ class RAGRunner:
         metadata = dict(state.get("metadata", {}))
 
         if not raw_context or not raw_debug:
+            confidence = evaluate_rag_confidence([], min_cosine_score=self.min_cosine_score)
+            metadata.update(confidence.to_metadata(prefix="rag"))
             metadata["rag_filter"] = "empty"
             return {
                 "filtered_context": [],
                 "filtered_debug": raw_debug,
+                "citations": [],
+                "confidence": confidence.model_dump(mode="json"),
                 "metadata": metadata,
             }
+
+        confidence = evaluate_rag_confidence(
+            raw_debug,
+            min_cosine_score=self.min_cosine_score,
+            allow_bm25_only=True,
+        )
+        metadata.update(confidence.to_metadata(prefix="rag"))
 
         if not self.require_relevance:
+            citations = build_rag_citations(raw_debug, max_citations=self.top_k)
             metadata["rag_filter"] = "disabled"
+            metadata.update(citations_to_metadata(citations, prefix="rag"))
             return {
                 "filtered_context": raw_context,
                 "filtered_debug": raw_debug,
+                "citations": [citation.model_dump(mode="json") for citation in citations],
+                "confidence": confidence.model_dump(mode="json"),
                 "metadata": metadata,
             }
 
-        relevance = self._judge_relevance(raw_debug)
-        metadata["rag_relevance_reason"] = relevance["reason"]
-        metadata["rag_best_cosine"] = str(relevance["best_cosine"])
-        metadata["rag_best_sources"] = ",".join(relevance["best_sources"])
-
-        if relevance["passed"]:
+        if confidence.should_inject:
+            citations = build_rag_citations(raw_debug, max_citations=self.top_k)
             metadata["rag_filter"] = "passed"
+            metadata.update(citations_to_metadata(citations, prefix="rag"))
             return {
                 "filtered_context": raw_context,
                 "filtered_debug": raw_debug,
+                "citations": [citation.model_dump(mode="json") for citation in citations],
+                "confidence": confidence.model_dump(mode="json"),
                 "metadata": metadata,
             }
 
         metadata["rag_filter"] = "low_relevance"
+        metadata.update(citations_to_metadata([], prefix="rag"))
         return {
             "filtered_context": [],
             "filtered_debug": raw_debug,
+            "citations": [],
+            "confidence": confidence.model_dump(mode="json"),
             "metadata": metadata,
         }
 
     def _pack_context_node(self, state: RAGGraphState) -> dict[str, object]:
         context = list(state.get("filtered_context", []))
         debug = list(state.get("filtered_debug", []))
+        citations = list(state.get("citations", []))
+        confidence = dict(state.get("confidence", {}))
         metadata = dict(state.get("metadata", {}))
         query = str(state.get("query", ""))
 
@@ -161,58 +225,14 @@ class RAGRunner:
             should_inject=bool(context),
             context=context,
             debug_chunks=debug,
+            citations=citations,
+            confidence=confidence,
             reason=metadata.get("rag_filter", ""),
-            metadata=metadata,
+            metadata=metadata_strings(metadata),
         )
         return {"result": result}
 
-    def _judge_relevance(self, debug_chunks: list[dict[str, Any]]) -> dict[str, Any]:
-        best_cosine = 0.0
-        best_sources: set[str] = set()
-
-        for chunk in debug_chunks:
-            sources = set(chunk.get("retrieval_sources", []))
-            cosine_score = chunk.get("cosine_score")
-            bm25_rank = chunk.get("bm25_rank")
-            vector_rank = chunk.get("vector_rank")
-
-            if sources:
-                best_sources.update(str(source) for source in sources)
-
-            if isinstance(cosine_score, (int, float)):
-                best_cosine = max(best_cosine, float(cosine_score))
-
-            if {"bm25", "vector"}.issubset(sources):
-                return {
-                    "passed": True,
-                    "reason": "hybrid_match",
-                    "best_cosine": best_cosine,
-                    "best_sources": sorted(best_sources),
-                }
-
-            if isinstance(cosine_score, (int, float)) and cosine_score >= self.min_cosine_score:
-                return {
-                    "passed": True,
-                    "reason": "vector_score",
-                    "best_cosine": best_cosine,
-                    "best_sources": sorted(best_sources),
-                }
-
-            if isinstance(bm25_rank, int) and bm25_rank <= 2 and vector_rank is not None:
-                return {
-                    "passed": True,
-                    "reason": "bm25_top_with_vector_candidate",
-                    "best_cosine": best_cosine,
-                    "best_sources": sorted(best_sources),
-                }
-
-        return {
-            "passed": False,
-            "reason": "no_reliable_candidate",
-            "best_cosine": best_cosine,
-            "best_sources": sorted(best_sources),
-        }
-
+    
     def _build_search_query(self, user_text: str, planner_query: str = "", state_topic: str = "") -> str:
         base_parts = [
             planner_query.strip(),
@@ -220,54 +240,4 @@ class RAGRunner:
             state_topic.strip(),
         ]
         query = " ".join(part for part in base_parts if part)
-        query = self._normalize_aliases(query)
-        query = self._expand_domain_terms(query)
-        return query.strip()
-
-    def _normalize_aliases(self, query: str) -> str:
-        aliases = {
-            "天依": "洛天依",
-            "阿绫": "乐正绫",
-            "阿綾": "乐正绫",
-            "龙牙": "乐正龙牙",
-            "龍牙": "乐正龙牙",
-            "摩柯": "徵羽摩柯",
-            "墨姐": "墨清弦",
-            "清弦": "墨清弦",
-            "言和和": "言和",
-        }
-
-        normalized = query
-        for alias, canonical in aliases.items():
-            if alias in normalized and canonical not in normalized:
-                normalized = normalized.replace(alias, f"{alias} {canonical}")
-
-        return normalized
-
-    def _expand_domain_terms(self, query: str) -> str:
-        expansions: list[str] = []
-
-        if any(term in query for term in ["应援词", "应援口号", "口号", "slogan"]):
-            expansions.extend(["口号", "应援词", "应援口号", "华风夏韵", "洛水天依"])
-
-        if any(term in query for term in ["歌曲", "有什么歌", "有哪些歌", "代表曲", "曲子"]):
-            expansions.extend(["相关歌曲", "代表曲", "官方专辑", "歌词"])
-
-        if any(term in query for term in ["专辑", "EP", "唱片"]):
-            expansions.extend(["官方专辑", "发行", "收录曲"])
-
-        if any(term in query for term in ["生日", "诞生日", "生贺"]):
-            expansions.extend(["生日", "诞生祭", "生贺曲"])
-
-        if any(term in query for term in ["设定", "人设", "资料", "介绍"]):
-            expansions.extend(["设定", "角色资料", "代表色", "声源", "生日"])
-
-        if not expansions:
-            return query
-
-        merged = query
-        for item in expansions:
-            if item not in merged:
-                merged += f" {item}"
-
-        return merged
+        return normalize_rag_query(query)

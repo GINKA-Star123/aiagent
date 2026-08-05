@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from apps.api.response_utils import error_message_response, ok_response
 from cloud.admin_auth import require_cloud_admin
 from cloud.config import cloud_settings
 from cloud.task_queue import CloudTaskQueue
+from cloud.task_view import sanitize_task
+
 
 router = APIRouter()
 task_queue = CloudTaskQueue(prefix=cloud_settings.redis_prefix)
@@ -28,12 +31,11 @@ async def enqueue_knowledge_rebuild(
         max_attempts=3,
     )
 
-    return {
-        "ok": True,
-        "task_id": result.task_id,
-        "created": result.created,
-        "status": result.status,
-    }
+    return ok_response(
+        task_id=result.task_id,
+        created=result.created,
+        status=result.status,
+    )
 
 
 @router.post("/cloud/tasks/vision-characters/rebuild")
@@ -49,13 +51,11 @@ async def enqueue_vision_character_rebuild(
         max_attempts=3,
     )
 
-    return {
-        "ok": True,
-        "task_id": result.task_id,
-        "created": result.created,
-        "status": result.status,
-    }
-
+    return ok_response(
+        task_id=result.task_id,
+        created=result.created,
+        status=result.status,
+    )
 
 @router.get("/cloud/tasks")
 async def list_cloud_tasks(
@@ -63,13 +63,14 @@ async def list_cloud_tasks(
     limit: int = 50,
     _: None = Depends(require_cloud_admin),
 ):
-    tasks = await task_queue.list_tasks(queue=queue, limit=limit)
+    safe_limit = min(max(limit, 1), 200)
+    tasks = await task_queue.list_tasks(queue=queue, limit=safe_limit)
 
-    return {
-        "ok": True,
-        "queue": queue,
-        "tasks": tasks,
-    }
+    return ok_response(
+        queue=queue,
+        limit=safe_limit,
+        tasks=[sanitize_task(task) for task in tasks],
+    )
 
 
 @router.get("/cloud/tasks/dead")
@@ -78,14 +79,14 @@ async def list_dead_cloud_tasks(
     limit: int = 50,
     _: None = Depends(require_cloud_admin),
 ):
-    tasks = await task_queue.list_dead_tasks(queue=queue, limit=limit)
+    safe_limit = min(max(limit, 1), 200)
+    tasks = await task_queue.list_dead_tasks(queue=queue, limit=safe_limit)
 
-    return {
-        "ok": True,
-        "queue": queue,
-        "tasks": tasks,
-    }
-
+    return ok_response(
+        queue=queue,
+        limit=safe_limit,
+        tasks=[sanitize_task(task) for task in tasks],
+    )
 
 @router.get("/cloud/tasks/summary")
 async def cloud_task_summary(
@@ -94,12 +95,10 @@ async def cloud_task_summary(
 ):
     summary = await task_queue.task_summary(queue=queue)
 
-    return {
-        "ok": True,
-        "queue": queue,
-        "summary": summary,
-    }
-
+    return ok_response(
+        queue=queue,
+        summary=summary,
+    )
 
 @router.get("/cloud/tasks/{task_id}")
 async def get_cloud_task(
@@ -108,12 +107,16 @@ async def get_cloud_task(
 ):
     task = await task_queue.get(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found.")
+        return error_message_response(
+            stage="cloud_task_get",
+            error="Task not found.",
+            status_code=404,
+            extra={"task_id": task_id},
+        )
 
-    return {
-        "ok": True,
-        "task": task,
-    }
+    return ok_response(
+        task=sanitize_task(task),
+    )
 
 
 @router.post("/cloud/tasks/{task_id}/retry")
@@ -124,10 +127,17 @@ async def retry_cloud_task(
     retried = await task_queue.retry_dead_task(task_id)
 
     if not retried:
-        raise HTTPException(status_code=404, detail="Task not found or is not in dead status")
+        return error_message_response(
+            stage="cloud_task_retry",
+            error="Task not found or is not in dead status.",
+            status_code=404,
+            extra={"task_id": task_id},
+        )
 
-    return {
-        "ok": True,
-        "task_id": task_id,
-        "status": "queued",
-    }
+    task = await task_queue.get(task_id)
+
+    return ok_response(
+        task_id=task_id,
+        status="queued",
+        task=sanitize_task(task) if task else {},
+    )

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from aiagent.schemas.outputs import ResponsePacket
+from aiagent.live2d.payload_contract import normalize_live2d_payload
 from integrations.live2d.file_live2d_client import FileLive2DClient
 from integrations.live2d.mock_live2d_client import MockLive2DClient
 
@@ -16,7 +17,17 @@ class Live2DPayloadDispatcher:
         daily_scene_type = metadata.get("vision_daily_scene_type", "")
         topic = metadata.get("rag_query", "") or metadata.get("state_topic", "")
 
-        live2d = packet.live2d if isinstance(packet.live2d, dict) else {}
+        live2d = normalize_live2d_payload(
+            packet.live2d if isinstance(packet.live2d, dict) else {},
+            emotion=str(packet.emotion or "neutral"),
+            expression=packet.expression or "neutral",
+            motion=packet.motion or "idle",
+            audio_url=packet.audio_url or "",
+            metadata={
+                "source": "live2d_payload_dispatcher",
+            },
+        )
+        packet.live2d = live2d
         character = live2d.get("character", {}) if isinstance(live2d.get("character"), dict) else {}
         scene = live2d.get("scene", {}) if isinstance(live2d.get("scene"), dict) else {}
 

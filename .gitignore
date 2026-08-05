@@ -1,6 +1,7 @@
 .env
 .venv/
 __pycache__/
+.pytest_cache/
 *.pyc
 node_modules/
 .next/
@@ -15,10 +16,10 @@ apps/flutter_client/
 apps/desktop_qt/
 cloud.tencent.env
 gpu_services
+_tmp/
 # Large model files
 data/models/
 *.bin
 *.safetensors
 *.pt
 *.pth
-

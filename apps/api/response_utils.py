@@ -60,3 +60,22 @@ def error_response(
         payload.update(extra)
 
     return json_response(payload, status_code=status_code)
+
+
+def error_message_response(
+        *,
+        stage:str,
+        error:str,
+        status_code: int = 400,
+        extra:dict[str,Any]|None = None,
+) ->Response:
+    payload :dict[str,Any] = {
+        "ok":False,
+        "stage":stage,
+        "error":error,
+    }
+
+    if extra:
+        payload.update(extra)
+
+    return json_response(payload,status_code=status_code)

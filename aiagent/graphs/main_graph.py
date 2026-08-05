@@ -13,9 +13,26 @@ from aiagent.graphs.vision_graph import VisionRunner
 from aiagent.persona.persona_runtime import PersonaRuntime
 from aiagent.schemas.inputs import InputAttachment, InputEvent
 from aiagent.schemas.outputs import EmotionLabel, ResponsePacket
+from aiagent.live2d.payload_contract import normalize_live2d_payload
 
+from aiagent.graphs.metadata_utils import (
+    mark_stage_done,
+    mark_stage_failed,
+    mark_stage_skipped,
+    metadata_strings,
+    now_perf,
+)
 
 NO_LONG_TERM_MEMORY_TEXT = "无长期记忆。"
+STAGE_PREPARE = "prepare_context"
+STAGE_VISION = "vision_graph"
+STAGE_MEMORY_RETRIEVE = "memory_retrieve"
+STAGE_STATE = "state_graph"
+STAGE_PLANNER = "planner_graph"
+STAGE_RAG = "rag_graph"
+STAGE_LLM = "llm_graph"
+STAGE_MEMORY_STORE = "memory_store"
+STAGE_RESPONSE = "response_packet"
 
 
 class MainGraphState(TypedDict, total=False):
@@ -136,39 +153,74 @@ class MainRunner:
         self.llm_runner.clear_all_threads()
 
     def _prepare_context_node(self, state: MainGraphState) -> dict[str, object]:
+        started_at = now_perf()
         event = state["input_event"] # type: ignore
         history = list(state.get("history", []))
+
+        metadata = mark_stage_done(
+        {
+            "main_graph_status": "started",
+            "history_count": len(history),
+            "input_modality": event.modality,
+            "attachment_count": len(event.attachments),
+        },
+        STAGE_PREPARE,
+        started_at,
+    )
 
         return {
             "history": history,
             "effective_user_text": event.text,
-            "metadata": {
-                "main_graph": "started",
-                "history_count": str(len(history)),
-                "input_modality": event.modality,
-                "attachment_count": str(len(event.attachments)),
-            },
+            "metadata": metadata,
         }
 
     def _run_vision_graph_node(self, state: MainGraphState) -> dict[str, object]:
+        started_at = now_perf()
         event = state["input_event"]# type: ignore
         metadata = dict(state.get("metadata", {}))
 
         # 纯文本轮次完全跳过 Vision；图片轮次才付出视觉模型成本，并把结果
         # 注入 LLM prompt 和 Live2D 场景提示。
         image_attachment = self._first_image_attachment(event.attachments)
-        if image_attachment is None or self.vision_runner is None:
-            metadata["vision_graph"] = "skipped"
+        if image_attachment is None :
+            metadata = mark_stage_skipped(
+                metadata,
+                STAGE_VISION,
+                "no_image_attachment",
+            )
             return {
                 "effective_user_text": event.text,
                 "metadata": metadata,
             }
 
-        vision_state = self.vision_runner.analyze_path(
-            image_path=image_attachment.path,
-            user_prompt=event.text,
-            user_id=event.user_id,
-        )
+        if self.vision_runner is None:
+            metadata = mark_stage_skipped(
+                metadata,
+                STAGE_VISION,
+                "vision_runner_not_configured",
+            )
+            return {
+                "effective_user_text": event.text,
+                "metadata": metadata,
+            }
+        try:
+            vision_state = self.vision_runner.analyze_path(
+                image_path=image_attachment.path,
+                user_prompt=event.text,
+                user_id=event.user_id,
+            )
+        except Exception as exc:
+            metadata = mark_stage_failed(
+                metadata,
+                STAGE_VISION,
+                started_at,
+                exc,
+                vision_attachment_path = image_attachment.path,
+            )
+            return {
+                "effective_user_text": event.text,
+                "metadata": metadata,
+            }
 
         vision_context = vision_state.get("chat_context", "")
         vision_memory_hint = vision_state.get("memory_hint", "")
@@ -181,8 +233,13 @@ class MainRunner:
         )
 
         metadata.update(vision_state.get("metadata", {}))
-        metadata["vision_graph"] = "done"
-        metadata["vision_attachment_path"] = image_attachment.path
+        metadata = mark_stage_done(
+            metadata,
+            STAGE_VISION,
+            started_at,
+            vision_attachment_path = image_attachment.path,
+            vision_context_chars = len(vision_context),
+        )
 
         return {
             "vision_state": vision_state,
@@ -194,18 +251,38 @@ class MainRunner:
         }
 
     def _retrieve_memory_node(self, state: MainGraphState) -> dict[str, object]:
+        started_at = now_perf()
         event = state["input_event"]# type: ignore
         query = state.get("effective_user_text") or event.text
-
-        # 检索时优先使用视觉增强后的文本；后续写记忆仍保留用户原文和最终回复。
-        result = self.memory_runner.retrieve_before_reply(
-            user_id=event.user_id,
-            user_text=event.text,
-            retrieval_query=query,
-        )
-
         metadata = dict(state.get("metadata", {}))
+        try:
+            # 检索时优先使用视觉增强后的文本；后续写记忆仍保留用户原文和最终回复。
+            result = self.memory_runner.retrieve_before_reply(
+                user_id=event.user_id,
+                user_text=event.text,
+                retrieval_query=query,
+            )
+        except Exception as exc:
+            metadata = mark_stage_failed(
+                metadata,
+                STAGE_MEMORY_RETRIEVE,
+                started_at,
+                exc,
+            )
+            return {
+                "memory_hits": [],
+                "memory_prompt_context": NO_LONG_TERM_MEMORY_TEXT,
+                "metadata": metadata,
+            }
+    
         metadata.update(result.get("metadata", {}))
+        metadata = mark_stage_done(
+            metadata,
+            STAGE_MEMORY_RETRIEVE,
+            started_at,
+            memory_retrieval_query = query,
+            memory_hit_count = len(result.get("memory_hits", [])),
+        )
 
         return {
             "memory_hits": result.get("memory_hits", []),
@@ -214,18 +291,34 @@ class MainRunner:
         }
 
     def _run_state_graph_node(self, state: MainGraphState) -> dict[str, object]:
+        started_at = now_perf()
         event = state["input_event"]# type: ignore
         effective_text = state.get("effective_user_text") or event.text
-
-        state_result = self.state_runner.run(
-            user_text=effective_text,
-            user_name=event.user_name,
-            persona_runtime=state["persona_runtime"],# type: ignore
-            history=state.get("history", []),
-        )
-
         metadata = dict(state.get("metadata", {}))
-        metadata["state_graph"] = "done"
+        try:
+            state_result = self.state_runner.run(
+                user_text=effective_text,
+                user_name=event.user_name,
+                persona_runtime=state["persona_runtime"],# type: ignore
+                history=state.get("history", []),
+            )
+        except Exception as exc:
+            metadata = mark_stage_failed(
+                metadata,
+                STAGE_STATE,
+                started_at,
+                exc,
+            )
+            raise
+            
+        metadata = mark_stage_done(
+            metadata,
+            STAGE_STATE,
+            started_at,
+            state_emotion = getattr(state_result, "emotion", ""),
+            state_intent = getattr(state_result, "intent", ""),
+            state_topic = getattr(state_result, "topic", ""),
+        )
 
         return {
             "state_result": state_result,
@@ -233,20 +326,33 @@ class MainRunner:
         }
 
     def _run_planner_graph_node(self, state: MainGraphState) -> dict[str, object]:
+        started_at = now_perf()
         event = state["input_event"]# type: ignore
         effective_text = state.get("effective_user_text") or event.text
-
-        planner_result = self.planner_runner.run(
-            user_text=effective_text,
-            user_name=event.user_name,
-            state_result=state["state_result"],# type: ignore
-            persona_runtime=state["persona_runtime"],# type: ignore
-        )
-
         metadata = dict(state.get("metadata", {}))
-        metadata["planner_graph"] = "done"
-        metadata["planner_retrieval_query"] = getattr(planner_result, "retrieval_query", "")
-        metadata["planner_should_retrieve"] = str(getattr(planner_result, "should_retrieve", False))
+        try:
+            planner_result = self.planner_runner.run(
+                user_text=effective_text,
+                user_name=event.user_name,
+                state_result=state["state_result"],# type: ignore
+                persona_runtime=state["persona_runtime"],# type: ignore
+            )
+        except Exception as exc:
+            metadata = mark_stage_failed(
+                metadata,
+                STAGE_PLANNER,
+                started_at,
+                exc,
+            )
+            raise
+        
+        metadata = mark_stage_done(
+            metadata,
+            STAGE_PLANNER,
+            started_at,
+            planner_retrieval_query = getattr(planner_result, "retrieval_query", ""),
+            planner_should_retrieve = bool(getattr(planner_result, "should_retrieve", False)),
+        )
 
         return {
             "planner_result": planner_result,
@@ -254,26 +360,39 @@ class MainRunner:
         }
 
     def _run_rag_graph_node(self, state: MainGraphState) -> dict[str, object]:
+        started_at = now_perf()
         event = state["input_event"]# type: ignore
         effective_text = state.get("effective_user_text") or event.text
         state_result = state["state_result"]# type: ignore
         planner_result = state["planner_result"]# type: ignore
-
+        metadata = dict(state.get("metadata", {}))
+        try:
         # Planner 决定是否值得注入 RAG；即使跳过，LLM 仍然拥有 persona、
         # 短期历史和长期记忆上下文。
-        rag_result = self.rag_runner.run(
-            user_text=effective_text,
-            state_intent=getattr(state_result, "intent", ""),
-            state_topic=getattr(state_result, "topic", ""),
-            planner_query=getattr(planner_result, "retrieval_query", ""),
-            planner_should_retrieve=bool(getattr(planner_result, "should_retrieve", False)),
-        )
-
-        metadata = dict(state.get("metadata", {}))
+            rag_result = self.rag_runner.run(
+                user_text=effective_text,
+                state_intent=getattr(state_result, "intent", ""),
+                state_topic=getattr(state_result, "topic", ""),
+                planner_query=getattr(planner_result, "retrieval_query", ""),
+                planner_should_retrieve=bool(getattr(planner_result, "should_retrieve", False)),
+            )
+        except Exception as exc:
+            metadata = mark_stage_failed(
+                metadata,
+                STAGE_RAG,
+                started_at,
+                exc,
+            )
+            raise
         metadata.update(rag_result.metadata)
-        metadata["rag_query"] = rag_result.query
-        metadata["rag_should_inject"] = str(rag_result.should_inject)
-        metadata["rag_context_count"] = str(len(rag_result.context))
+        metadata = mark_stage_done(
+            metadata,
+            STAGE_RAG,
+            started_at,
+            rag_query = rag_result.query,
+            rag_should_inject = rag_result.should_inject,
+            rag_context_count = len(rag_result.context),
+        )
 
         return {
             "rag_result": rag_result,
@@ -281,24 +400,38 @@ class MainRunner:
         }
 
     def _run_llm_graph_node(self, state: MainGraphState) -> dict[str, object]:
+        started_at = now_perf()
         event = state["input_event"]# type: ignore
         effective_text = state.get("effective_user_text") or event.text
         rag_result = state["rag_result"]# type: ignore
-
-        llm_result = self.llm_runner.run(
-            thread_id=event.user_id,
-            user_text=event.text,
-            user_name=event.user_name,
-            state_result=state["state_result"],# type: ignore
-            planner_result=state["planner_result"],# type: ignore
-            persona_runtime=state["persona_runtime"],# type: ignore
-            internal_context=state.get("vision_context", ""),
-            retrieved_context=list(rag_result.context),
-            long_term_memory_context=state.get("memory_prompt_context", NO_LONG_TERM_MEMORY_TEXT),
-        )
-
         metadata = dict(state.get("metadata", {}))
-        metadata["llm_graph"] = "done"
+        try:
+            llm_result = self.llm_runner.run(
+                thread_id=event.user_id,
+                user_text=event.text,
+                user_name=event.user_name,
+                state_result=state["state_result"],# type: ignore
+                planner_result=state["planner_result"],# type: ignore
+                persona_runtime=state["persona_runtime"],# type: ignore
+                internal_context=state.get("vision_context", ""),
+                retrieved_context=list(rag_result.context),
+                long_term_memory_context=state.get("memory_prompt_context", NO_LONG_TERM_MEMORY_TEXT),
+            )
+        except Exception as exc:
+            metadata = mark_stage_failed(
+                metadata,
+                STAGE_LLM,
+                started_at,
+                exc,
+            )
+            raise
+
+        metadata.update(llm_result.metadata)
+        metadata = mark_stage_done(
+            metadata,
+            STAGE_LLM,
+            started_at,
+        )
 
         return {
             "llm_result": llm_result,
@@ -340,6 +473,7 @@ class MainRunner:
         }
 
     def _build_response_packet_node(self, state: MainGraphState) -> dict[str, object]:
+        started_at = now_perf()
         llm_result = state["llm_result"]# type: ignore
         metadata = dict(state.get("metadata", {}))
         metadata.update(llm_result.metadata)
@@ -360,7 +494,7 @@ class MainRunner:
         suggestion = state.get("vision_live2d_suggestion", {})
         if isinstance(suggestion, dict) and suggestion:
             live2d = self._merge_vision_live2d(live2d, suggestion)
-
+        metadata["main_graph_status"] = "done"
         packet = ResponsePacket(
             reply_text=llm_result.reply_text,
             base_reply_text=llm_result.reply_text,
@@ -370,7 +504,13 @@ class MainRunner:
             motion=motion,
             expression=expression,
             live2d=live2d,
-            metadata={str(key): str(value) for key, value in metadata.items()},
+            metadata=metadata_strings(
+                mark_stage_done(
+                    metadata,
+                    STAGE_RESPONSE,
+                    started_at,
+                )
+            ),
         )
 
         return {
@@ -422,29 +562,17 @@ class MainRunner:
         expression: str,
         audio_url: str = "",
     ) -> dict[str, Any]:
-        return {
-            "character": {
-                "character_id": "yzl",
-                "model_id": "yzl_v1",
-                "emotion": str(emotion),
-                "expression": expression or "neutral",
-                "motion": motion or "idle",
-                "motion_priority": 1,
-                "mouth": {
-                    "mode": "audio" if audio_url else "idle",
-                    "audio_url": audio_url,
-                },
-                "eye": {
-                    "blink": True,
-                    "look_at": "user",
-                },
-            },
-            "scene": {
-                "background_id": "room_default",
-                "lighting": "normal",
-                "effect": "none",
-            },
-        }
+        return normalize_live2d_payload(
+            {},
+            emotion = str(emotion),
+            expression = expression or "neutral",
+            motion = motion or "idle",
+            audio_url = audio_url or "" ,
+            background_id = "room_default",
+            metadata = {
+                "source":"main_graph"
+            }
+        )
 
     def _merge_vision_live2d(self, live2d: dict[str, Any], suggestion: dict[str, Any]) -> dict[str, Any]:
         merged = dict(live2d or {})
@@ -462,7 +590,12 @@ class MainRunner:
 
         merged["character"] = character
         merged["scene"] = scene
-        return merged
+        return normalize_live2d_payload(
+            merged,
+            metadata={
+                "source": "main_graph_vision_merge",
+            },
+        )
 
     def _to_emotion_label(self, emotion: str) -> EmotionLabel:
         try:

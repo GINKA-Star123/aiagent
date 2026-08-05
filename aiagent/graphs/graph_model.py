@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from enum import StrEnum
 
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -111,8 +112,52 @@ class RAGGraphResult(BaseModel):
     should_inject: bool = False
     context: list[str] = Field(default_factory=list)
     debug_chunks: list[dict[str, Any]] = Field(default_factory=list)
+    citations:list[dict[str,Any]] = Field(default_factory=list)
+    confidence: dict[str,Any] = Field(default_factory=dict)
     reason: str = ""
     metadata: dict[str, str] = Field(default_factory=dict)
+
+class VisionImageType(StrEnum):
+    CHARACTER = "character"
+    DAILY = "daily"
+    SCREENSHOT = "screenshot"
+    DOCUMENT = "document"
+    FOOD = "food"
+    TRAVEL = "travel"
+    LANDSCAPE = "landscape"
+    OBJECT = "object"
+    UNKNOWN = "unknown"
+
+class VisionConfidenceLevel(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    UNCERTAIN = "uncertain"
+
+class VisionConfidenceReport(BaseModel):
+    score: float = 0.0
+    level: VisionConfidenceLevel = VisionConfidenceLevel.UNCERTAIN
+    threshold: float = 0.78
+    source: str = "vision_service"
+    reason: str = ""
+    evidence: list[str] = Field(default_factory=list)
+
+    character_score: float = 0.0
+    model_score: float = 0.0
+    best_retrieval_score: float = 0.0
+    best_character_id: str = ""
+    best_character_name: str = ""
+    candidate_count: int = 0
+
+class VisionLowConfidencePolicy(BaseModel):
+    active: bool = True
+    reason: str = ""
+    use_conservative_wording : bool = True
+    avoid_identity_assertion: bool = True
+    expose_candidates: bool = True
+    defer_memory_hint: bool = True
+    suppress_live2d_override: bool = False
+    reply_instruction: str = "视觉识别不确定时，请使用“可能、像是、不完全确定”这类保守表达，不要强行确认角色身份。"
 
 class VisionSafetyResult(BaseModel):
     has_sensitive_content: bool = Field(
@@ -154,34 +199,37 @@ class DailySceneResult(BaseModel):
     notable_details:list[str] = Field(default_factory=list)
 
 class VisionAnalyzeResult(BaseModel):
-    image_id:str
-    image_path:str
-    image_url :str = ""
-    width:int = 0
-    height:int = 0
-    format:str = ""
+    image_id: str
+    image_path: str
+    image_url: str = ""
+    width: int = 0
+    height: int = 0
+    format: str = ""
 
-    image_type:str ="unknown"
-    user_intent:str = "unknown"
+    image_type: VisionImageType = VisionImageType.UNKNOWN
+    user_intent: str = "unknown"
 
-    summary:str = ""
-    objects : list[str] = Field(default_factory=list)
-    scene:str = ""
-    daily_scene:DailySceneResult = Field(default_factory=DailySceneResult)
-    ocr_text : list[str] = Field(default_factory=list)
-    mood:str = ""
+    summary: str = ""
+    objects: list[str] = Field(default_factory=list)
+    scene: str = ""
+    daily_scene: DailySceneResult = Field(default_factory=DailySceneResult)
+    ocr_text: list[str] = Field(default_factory=list)
+    mood: str = ""
 
-    recognized_characters :list[CharacterCandidate] = Field(default_factory=list)
-    is_confident:bool = False
-    confidence:float = 0.0
+    character_candidates: list[CharacterCandidate] = Field(default_factory=list)
+    recognized_characters: list[CharacterCandidate] = Field(default_factory=list)
 
-    safety:VisionSafetyResult = Field(default_factory=VisionSafetyResult)
-    memory:VisionMemoryCandidate = Field(default_factory=VisionMemoryCandidate)
-    live2d:VisionLive2DSuggestion = Field(default_factory=VisionLive2DSuggestion)
+    is_confident: bool = False
+    confidence: float = 0.0
+    confidence_report: VisionConfidenceReport = Field(default_factory=VisionConfidenceReport)
+    low_confidence_policy: VisionLowConfidencePolicy = Field(default_factory=VisionLowConfidencePolicy)
 
-    raw_model_output : str =""
-    metadata:dict[str,Any] = Field(default_factory=dict)
+    safety: VisionSafetyResult = Field(default_factory=VisionSafetyResult)
+    memory: VisionMemoryCandidate = Field(default_factory=VisionMemoryCandidate)
+    live2d: VisionLive2DSuggestion = Field(default_factory=VisionLive2DSuggestion)
 
+    raw_model_output: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
     
 
 class LLMGraphInput(BaseModel):

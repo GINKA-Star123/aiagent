@@ -1,457 +1,386 @@
 # 配置参考
 
-本文档对应 `config/settings.py` 的当前配置结构，用于说明 `.env` 中可配置项的作用、默认值、影响模块和常见用法。
+本文档是 V1.0 收尾阶段的配置索引，目标是让 `.env.example`、`cloud.tencent.example.env`、`config/settings.py`、`cloud/config.py` 和部署脚本保持一致。
 
-配置加载规则：
+## 配置来源
 
-- 配置类：`config/settings.py`
-- 默认常量：`config/defaults.py`
-- `.env` 文件编码：UTF-8
-- 未识别配置：会被忽略，`extra="ignore"`
+| 来源 | 用途 |
+| --- | --- |
+| `config/settings.py` | 后端核心运行时配置：LLM、RAG、Vision、Memory、ASR、TTS、Live2D、API |
+| `cloud/config.py` | 云部署配置：Redis、限流、并发、对象存储、GPU endpoint |
+| `cloud/admin_auth.py` | 管理接口 token：`CLOUD_ADMIN_TOKEN` |
+| `cloud/gpu_client.py` | GPU 服务鉴权：`GPU_API_TOKEN` |
+| `apps/worker/main.py` | worker 运行参数：`WORKER_CONCURRENCY`、`TASK_QUEUE_NAME` 等 |
+| `deploy/Dockerfile.api` | API worker 数：`WEB_CONCURRENCY` |
+| `deploy/docker-compose.tencent.yml` | 云端容器网络、Redis、Qdrant、Neo4j、Postgres |
+| `apps/desktop_qt/chat_window.py` | Qt 调试端本地环境变量 |
+
+## 示例文件
+
+| 文件 | 用途 | 是否可提交 |
+| --- | --- | --- |
+| `.env.example` | 本地开发模板，默认 mock，可直接复制为 `.env` | 是 |
+| `.env` | 本机真实配置，可能包含密钥 | 否 |
+| `cloud.tencent.example.env` | 腾讯云部署模板，生产向配置，占位符需要替换 | 是 |
+| `cloud.tencent.env` | 云端真实配置，包含真实 token、bucket、密钥 | 否 |
+
+复制本地配置：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+复制云端配置：
+
+```powershell
+Copy-Item cloud.tencent.example.env cloud.tencent.env
+```
+
+## V1.0 推荐配置组合
+
+### 本地 mock 闭环
+
+用于开发、API contract、smoke、Flutter 联调基础链路。不会访问真实模型、外部 Redis、GPU 服务。
+
+```env
+APP_ENV=development
+CLOUD_MODE=false
+
+LLM_PROVIDER=mock
+ENABLE_MOCK_LLM=true
+
+STATE_PROVIDER=mock
+ENABLE_MOCK_STATE=true
+
+PLANNER_PROVIDER=mock
+ENABLE_MOCK_PLANNER=true
+
+VISION_PROVIDER=mock
+TTS_PROVIDER=mock
+ENABLE_MOCK_TTS=true
+ASR_PROVIDER=mock
+ENABLE_MOCK_ASR=true
+LIVE2D_PROVIDER=mock
+ENABLE_LIVE2D_RUNTIME=false
+```
+
+### 本地真实 LLM + 其他 mock
+
+用于只验证文本回复质量，保留 RAG、Vision、TTS、ASR、Live2D 的低成本降级能力。
+
+```env
+ENABLE_MOCK_LLM=false
+LLM_PROVIDER=siliconflow
+LLM_MODEL=your-chat-model
+SILICONFLOW_API=your-api-key
+SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+
+ENABLE_MOCK_STATE=true
+ENABLE_MOCK_PLANNER=true
+VISION_PROVIDER=mock
+ENABLE_MOCK_TTS=true
+ENABLE_MOCK_ASR=true
+LIVE2D_PROVIDER=mock
+```
+
+### 云部署
+
+用于腾讯云 / Docker Compose 生产向运行。必须替换所有 `change-*`、`your-*` 占位符。
+
+```env
+APP_ENV=production
+CLOUD_MODE=true
+CLOUD_ADMIN_TOKEN=change-this-admin-token
+REDIS_URL=redis://redis:6379/0
+STORAGE_PROVIDER=cos
+RATE_LIMIT_ENABLED=true
+INFLIGHT_LIMIT_ENABLED=true
+LIMITER_FAIL_OPEN=false
+```
 
 ## 基础配置
 
 | 配置项 | 默认值 | 说明 | 影响范围 |
 | --- | --- | --- | --- |
 | `APP_NAME` | `aiagent` | 应用名称 | 日志、服务标识 |
-| `APP_ENV` | `development` | 运行环境 | 环境区分 |
-| `LOG_LEVEL` | `INFO` | 日志级别 | `aiagent.common.logger` |
-| `API_HOST` | `127.0.0.1` | API 监听地址 | API 启动脚本 |
-| `API_PORT` | `8000` | API 监听端口 | API 启动脚本 |
+| `APP_ENV` | `development` | 运行环境 | 日志、诊断、部署识别 |
+| `LOG_LEVEL` | `INFO` | 日志级别 | API、worker、运行时日志 |
+| `API_HOST` | `127.0.0.1` | API 监听地址 | 本地启动脚本 |
+| `API_PORT` | `8000` | API 监听端口 | 本地启动脚本 |
 | `API_CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | CORS 白名单，多个地址用逗号分隔 | `apps/api/http_server.py` |
 
-最小 API 配置示例：
+生产环境中 `API_CORS_ORIGINS` 必须显式配置真实前端域名，不建议使用宽松默认值。
 
-```env
-API_HOST=127.0.0.1
-API_PORT=8000
-LOG_LEVEL=INFO
-```
-
-## 主聊天 LLM
+## 云与运维配置
 
 | 配置项 | 默认值 | 说明 | 影响范围 |
 | --- | --- | --- | --- |
-| `LLM_PROVIDER` | `mock` | 主回复模型 provider | `aiagent.services.llm_service.LLMService` |
-| `LLM_MODEL` | `Qwen/Qwen3-8B` | 主回复模型名称 | 主聊天回复 |
-| `ENABLE_MOCK_LLM` | `true` | 是否强制使用 mock LLM | 主聊天回复 |
-| `LLM_TIMEOUT_SECONDS` | `20.0` | LLM HTTP 请求超时 | 主聊天、状态、规划等 LLM 调用 |
-| `LLM_TEMPERATURE` | `0.7` | 采样温度 | 主聊天回复 |
-| `LLM_MAX_TOKENS` | `200` | 最大输出 token 数 | 主聊天回复 |
+| `CLOUD_MODE` | `false` | 是否启用云模式语义 | readiness、限流、任务队列、云部署 |
+| `CLOUD_DEPLOY_REGION` | `tencent-cn` | 部署区域标识 | config snapshot、诊断 |
+| `API_PUBLIC_BASE_URL` | 空 | 对外 API 根地址 | 客户端配置、对象 URL 生成参考 |
+| `CLOUD_ADMIN_TOKEN` | 空 | 管理接口 token | `/cloud/ops/*`、`/cloud/tasks/*`、rebuild 管理接口 |
+| `REDIS_URL` | 空 | Redis 连接地址 | 限流、并发租约、任务队列、分布式锁 |
+| `REDIS_PREFIX` | `aiagent:v1` | Redis key 前缀 | 多环境隔离 |
 
-支持的常用 provider：
+管理接口推荐 header：
 
-| Provider | 说明 | 相关配置 |
-| --- | --- | --- |
-| `mock` | 本地 mock，不访问外部模型 | `ENABLE_MOCK_LLM=true` |
-| `openai` | OpenAI 兼容接口 | `OPENAI_API_KEY`, `OPENAI_BASE_URL` |
-| `siliconflow` | SiliconFlow OpenAI 兼容接口 | `SILICONFLOW_API`, `SILICONFLOW_BASE_URL` |
-| `lmstudio` | LM Studio 本地服务 | `LMSTUDIO_API_KEY`, `LMSTUDIO_BASE_URL` |
-
-SiliconFlow 示例：
-
-```env
-ENABLE_MOCK_LLM=false
-LLM_PROVIDER=siliconflow
-LLM_MODEL=你的聊天模型名称
-SILICONFLOW_API=你的 key
-SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+```text
+x-cloud-admin-token: <CLOUD_ADMIN_TOKEN>
 ```
 
-LM Studio 示例：
+旧 header `x-admin-token` 仍可兼容，但 V1.0 后续文档和客户端都以 `x-cloud-admin-token` 为准。
 
-```env
-ENABLE_MOCK_LLM=false
-LLM_PROVIDER=lmstudio
-LLM_MODEL=local-model
-LMSTUDIO_API_KEY=lm-studio
-LMSTUDIO_BASE_URL=http://127.0.0.1:1234/v1
-```
-
-## 状态分析 LLM
-
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `STATE_PROVIDER` | `mock` | 状态分析模型 provider | `aiagent.services.state_llm_service.StateLLMService` |
-| `STATE_MODEL` | `Qwen/Qwen3-8B` | 状态分析模型名称 | `aiagent.graphs.state_graph.StateRunner` |
-| `ENABLE_MOCK_STATE` | `true` | 是否强制使用 mock 状态分析 | 情绪、意图、用户状态分析 |
-
-该模块用于分析用户输入中的情绪、状态和对话意图。  
-如果主聊天已经接入真实模型，但状态分析仍用 mock，可以保持：
-
-```env
-ENABLE_MOCK_STATE=true
-STATE_PROVIDER=mock
-```
-
-如果希望状态分析也接入真实模型：
-
-```env
-ENABLE_MOCK_STATE=false
-STATE_PROVIDER=siliconflow
-STATE_MODEL=你的状态分析模型名称
-```
-
-## 回复规划 LLM
-
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `PLANNER_PROVIDER` | `mock` | 回复规划模型 provider | `aiagent.services.planner_llm_service.PlannerLLMService` |
-| `PLANNER_MODEL` | `Qwen/Qwen3-8B` | 回复规划模型名称 | `aiagent.graphs.planner_graph.PlannerRunner` |
-| `ENABLE_MOCK_PLANNER` | `true` | 是否强制使用 mock planner | 检索决策、回复策略 |
-
-规划模块影响：
-
-- 是否检索 RAG
-- 如何组织回复
-- 是否需要特殊处理用户意图
-
-真实 planner 示例：
-
-```env
-ENABLE_MOCK_PLANNER=false
-PLANNER_PROVIDER=siliconflow
-PLANNER_MODEL=你的规划模型名称
-```
-
-## OpenAI / SiliconFlow / LM Studio
+### 限流与并发
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | 空 | OpenAI API Key |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI 兼容接口地址 |
-| `SILICONFLOW_API` | 空 | SiliconFlow API Key |
-| `SILICONFLOW_BASE_URL` | `https://api.siliconflow.cn/v1` | SiliconFlow API 地址 |
-| `LMSTUDIO_API_KEY` | `lm-studio` | LM Studio API Key，占位即可 |
-| `LMSTUDIO_BASE_URL` | `http://127.0.0.1:1234/v1` | LM Studio 本地接口地址 |
+| `RATE_LIMIT_ENABLED` | `false` | 是否启用频率限制 |
+| `INFLIGHT_LIMIT_ENABLED` | `false` | 是否启用并发请求限制 |
+| `LIMITER_FAIL_OPEN` | `true` | Redis 不可用时是否放行限流检查 |
+| `RATE_LIMIT_DEFAULT_PER_MINUTE` | `60` | 默认每分钟请求数 |
+| `RATE_LIMIT_CHAT_PER_MINUTE` | `20` | `/chat` 每分钟请求数 |
+| `RATE_LIMIT_MULTIMODAL_PER_MINUTE` | `5` | 多模态每分钟请求数 |
+| `RATE_LIMIT_VOICE_PER_MINUTE` | `5` | 语音每分钟请求数 |
+| `RATE_LIMIT_REBUILD_PER_MINUTE` | `1` | 重建类接口每分钟请求数 |
+| `GLOBAL_INFLIGHT_LIMIT` | `100` | 全局并发上限 |
+| `CHAT_INFLIGHT_LIMIT` | `40` | 聊天并发上限 |
+| `MULTIMODAL_INFLIGHT_LIMIT` | `10` | 多模态并发上限 |
+| `VOICE_INFLIGHT_LIMIT` | `8` | 语音并发上限 |
+| `REBUILD_INFLIGHT_LIMIT` | `1` | 重建任务并发上限 |
+| `INFLIGHT_LEASE_SECONDS` | `120` | 并发租约 TTL |
 
-注意：
+云端建议：
 
-- `SILICONFLOW_API` 是当前 `settings.py` 中使用的环境变量名。
-- 视觉、RAG、Memory 等模块可以通过单独的 `*_API_KEY_ENV` 指向某个环境变量。
-- 例如 `VISION_API_KEY_ENV=SILICONFLOW_API` 表示视觉模块读取 `SILICONFLOW_API` 的值。
+```env
+RATE_LIMIT_ENABLED=true
+INFLIGHT_LIMIT_ENABLED=true
+LIMITER_FAIL_OPEN=false
+```
+
+本地建议：
+
+```env
+RATE_LIMIT_ENABLED=false
+INFLIGHT_LIMIT_ENABLED=false
+```
+
+### 对象存储
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `STORAGE_PROVIDER` | `local` | `local`、`cos` 或 `s3` |
+| `LOCAL_STORAGE_ROOT` | `data/cloud_storage` | 本地对象存储根目录 |
+| `UPLOAD_MAX_BYTES` | `26214400` | 直传最大字节数，默认 25 MB |
+| `S3_ENDPOINT_URL` | 空 | S3/COS endpoint |
+| `S3_REGION` | `ap-guangzhou` | S3/COS region |
+| `S3_BUCKET` | 空 | bucket 名称 |
+| `S3_ACCESS_KEY_ID` | 空 | access key id |
+| `S3_SECRET_ACCESS_KEY` | 空 | secret access key |
+| `S3_PUBLIC_BASE_URL` | 空 | 对外访问 base URL |
+
+`S3_ACCESS_KEY_ID` 和 `S3_SECRET_ACCESS_KEY` 只允许写入真实私有 env，不要写入文档、日志或提交记录。
+
+### GPU 服务
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `GPU_LLM_BASE_URL` | 空 | 云 GPU LLM endpoint |
+| `GPU_TTS_BASE_URL` | 空 | 云 GPU TTS endpoint |
+| `GPU_ASR_BASE_URL` | 空 | 云 GPU ASR endpoint |
+| `GPU_API_TOKEN` | 空 | GPU 服务 Bearer token |
+
+当前 GPU circuit breaker 阈值在源码中固定，不读取 `GPU_CIRCUIT_*` 环境变量。因此 V1.0 示例文件不再提供这些未接入字段。
+
+## LLM 配置
+
+| 配置项 | 默认值 | 说明 | 影响范围 |
+| --- | --- | --- | --- |
+| `LLM_PROVIDER` | `mock` | 主回复模型 provider | `LLMService` |
+| `LLM_MODEL` | `Qwen/Qwen3-8B` | 主回复模型名称 | 主聊天回复 |
+| `ENABLE_MOCK_LLM` | `true` | 是否强制 mock LLM | 主聊天回复 |
+| `LLM_TIMEOUT_SECONDS` | `20.0` | HTTP 调用超时 | 主聊天、状态、规划等 |
+| `LLM_TEMPERATURE` | `0.7` | 采样温度 | 主聊天回复 |
+| `LLM_MAX_TOKENS` | `200` | 最大输出 token 数 | 主聊天回复 |
+| `OPENAI_API_KEY` | 空 | OpenAI-compatible API key | OpenAI provider |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL | OpenAI provider |
+| `SILICONFLOW_API` | 空 | SiliconFlow API key | SiliconFlow provider |
+| `SILICONFLOW_BASE_URL` | `https://api.siliconflow.cn/v1` | SiliconFlow base URL | SiliconFlow provider |
+| `LMSTUDIO_API_KEY` | `lm-studio` | LM Studio token 占位 | LM Studio provider |
+| `LMSTUDIO_BASE_URL` | `http://127.0.0.1:1234/v1` | LM Studio base URL | LM Studio provider |
+
+`STATE_PROVIDER`、`STATE_MODEL`、`ENABLE_MOCK_STATE` 控制状态分析 LLM。`PLANNER_PROVIDER`、`PLANNER_MODEL`、`ENABLE_MOCK_PLANNER` 控制回复规划 LLM。V1.0 稳定性优先，生产前可以先只切主 LLM，状态和规划保留 mock。
 
 ## RAG 配置
 
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `RAG_EMBEDDING_PROVIDER` | `huggingface` | RAG embedding provider | `aiagent.knowledge.vector_store.LangChainVectorStore` |
-| `RAG_EMBEDDING_MODEL_NAME` | `BAAI/bge-small-zh-v1.5` | embedding 模型名 | 向量索引 |
-| `RAG_EMBEDDING_MODEL_PATH` | 空 | 本地 embedding 模型路径 | 本地模型加载 |
-| `RAG_EMBEDDING_DEVICE` | `cpu` | 运行设备 | embedding 推理 |
-| `RAG_EMBEDDING_LOCAL_FILES_ONLY` | `true` | 是否只使用本地文件 | 避免访问 HuggingFace |
-| `RAG_EMBEDDING_API_KEY_ENV` | 空 | API embedding key 的环境变量名 | API embedding |
-| `RAG_EMBEDDING_BASE_URL` | 空 | API embedding base url | API embedding |
-| `RAG_EMBEDDING_BATCH_SIZE` | `64` | embedding 批大小 | 索引构建性能 |
-| `RAG_EMBEDDING_DIMENSIONS` | 空 | embedding 维度 | 向量库维度 |
-| `RAG_CHUNK_SIZE` | `520` | 文档切块大小 | 文档加载 |
-| `RAG_CHUNK_OVERLAP` | `80` | 文档切块重叠 | 文档加载 |
-| `RAG_BM25_TOP_K` | `6` | BM25 初筛数量 | 混合检索 |
-| `RAG_VECTOR_TOP_K` | `6` | 向量检索数量 | 混合检索 |
-| `RAG_FINAL_TOP_K` | `4` | 最终上下文数量 | 注入 LLM 的知识片段数 |
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `RAG_EMBEDDING_PROVIDER` | `huggingface` | embedding provider |
+| `RAG_EMBEDDING_MODEL_NAME` | `BAAI/bge-small-zh-v1.5` | embedding 模型名 |
+| `RAG_EMBEDDING_MODEL_PATH` | 空 | 本地 embedding 模型路径 |
+| `RAG_EMBEDDING_DEVICE` | `cpu` | 运行设备 |
+| `RAG_EMBEDDING_LOCAL_FILES_ONLY` | `true` | 是否只使用本地文件 |
+| `RAG_EMBEDDING_API_KEY_ENV` | 空 | API key 所在环境变量名 |
+| `RAG_EMBEDDING_BASE_URL` | 空 | API embedding base URL |
+| `RAG_EMBEDDING_BATCH_SIZE` | `64` | embedding 批大小 |
+| `RAG_EMBEDDING_DIMENSIONS` | 空 | embedding 维度 |
+| `RAG_CHUNK_SIZE` | `520` | 文档切块大小 |
+| `RAG_CHUNK_OVERLAP` | `80` | 文档切块重叠 |
+| `RAG_BM25_TOP_K` | `6` | BM25 初筛数量 |
+| `RAG_VECTOR_TOP_K` | `6` | 向量检索数量 |
+| `RAG_FINAL_TOP_K` | `4` | 最终注入 LLM 的片段数 |
 
-影响文件：
+注意事项：
 
-- `aiagent/knowledge/document_loader.py`
-- `aiagent/knowledge/vector_store.py`
-- `aiagent/knowledge/retriever.py`
-- `aiagent/knowledge/rag_pipeline.py`
-- `aiagent/graphs/rag_graph.py`
-- `apps/api/routes/knowledge.py`
+- `RAG_EMBEDDING_DIMENSIONS` 为空时由 provider 或索引实现自行处理。
+- 维度变化后必须重建索引。
+- mock 主链路 smoke 不要求真实 RAG embedding 可用。
 
-本地 RAG embedding 示例：
-
-```env
-RAG_EMBEDDING_PROVIDER=huggingface
-RAG_EMBEDDING_MODEL_NAME=BAAI/bge-small-zh-v1.5
-RAG_EMBEDDING_MODEL_PATH=data/models/bge-small-zh-v1.5
-RAG_EMBEDDING_DEVICE=cpu
-RAG_EMBEDDING_LOCAL_FILES_ONLY=true
-```
-
-API embedding 示例：
-
-```env
-RAG_EMBEDDING_PROVIDER=siliconflow
-RAG_EMBEDDING_MODEL_NAME=你的 embedding 模型名称
-RAG_EMBEDDING_API_KEY_ENV=SILICONFLOW_API
-RAG_EMBEDDING_BASE_URL=https://api.siliconflow.cn/v1
-```
-
-## 视觉识别配置
-
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `VISION_PROVIDER` | `mock` | 视觉模型 provider | `aiagent.services.vision_service.VisionService` |
-| `VISION_MODEL` | 空 | 视觉模型名称 | 图片理解 |
-| `VISION_API_KEY_ENV` | 空 | 视觉 API key 的环境变量名 | API 视觉模型 |
-| `VISION_BASE_URL` | 空 | 视觉模型接口地址 | API 视觉模型 |
-| `VISION_TIMEOUT_SECONDS` | `60.0` | 视觉模型请求超时 | 图片理解 |
-| `VISION_UPLOAD_DIR` | `data/uploads/images` | 上传图片缓存目录 | `aiagent.vision.image_store.ImageStore` |
-| `VISION_MAX_IMAGE_BYTES` | `12582912` | 最大图片大小，约 12 MB | 上传限制 |
-
-视觉模型示例：
-
-```env
-VISION_PROVIDER=siliconflow
-VISION_MODEL=你的视觉模型名称
-VISION_API_KEY_ENV=SILICONFLOW_API
-VISION_BASE_URL=https://api.siliconflow.cn/v1
-VISION_TIMEOUT_SECONDS=180
-```
-
-## 视觉角色识别配置
-
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `VISION_CHARACTER_ROOT_DIR` | `data/characters` | 角色图库根目录 | `aiagent.vision.character_registry.CharacterRegistry` |
-| `VISION_CHARACTER_INDEX_DIR` | `data/cache/vision/character_index` | FAISS 索引缓存目录 | `aiagent.vision.character_retriever.CharacterRetriever` |
-| `VISION_CHARACTER_EMBEDDING_MODEL_NAME` | `clip-ViT-B-32` | 角色图像 embedding 模型名 | 角色相似度检索 |
-| `VISION_CHARACTER_EMBEDDING_MODEL_PATH` | 空 | 本地 CLIP 模型路径 | 本地模型加载 |
-| `VISION_CHARACTER_EMBEDDING_DEVICE` | `cpu` | 运行设备 | embedding 推理 |
-| `VISION_CHARACTER_EMBEDDING_LOCAL_FILES_ONLY` | `false` | 是否只使用本地模型 | 避免联网下载 |
-| `VISION_CHARACTER_CONFIDENT_SCORE` | `0.78` | 角色识别置信阈值 | 是否确认角色 |
-
-当前工作区使用的角色目录是：
-
-```text
-data/characters
-```
-
-本地开发可以保持默认值；如果部署环境的图库放在其他位置，再显式覆盖：
-
-```env
-VISION_CHARACTER_ROOT_DIR=data/characters
-VISION_CHARACTER_INDEX_DIR=data/cache/vision/character_index
-VISION_CHARACTER_EMBEDDING_MODEL_PATH=data/models/clip
-VISION_CHARACTER_EMBEDDING_LOCAL_FILES_ONLY=true
-```
-
-索引重建：
-
-```powershell
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/vision/characters/rebuild?force_rebuild=true"
-```
-
-角色识别相关文件：
-
-- `aiagent/vision/character_registry.py`
-- `aiagent/vision/character_retriever.py`
-- `aiagent/vision/image_store.py`
-- `aiagent/services/vision_service.py`
-- `aiagent/graphs/vision_graph.py`
-- `apps/api/routes/vision.py`
-
-## 长期记忆配置
-
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `MEMORY_LLM_PROVIDER` | `openai` | 记忆整理 LLM provider | `aiagent.memory.mem0_memory.Mem0LongTermMemory` |
-| `MEMORY_LLM_MODEL` | `gpt-4o-mini` | 记忆整理模型 | 记忆抽取和整理 |
-| `MEMORY_LLM_API_KEY_ENV` | `OPENAI_API_KEY` | 记忆 LLM API key 环境变量名 | 记忆 LLM |
-| `MEMORY_EMBEDDER_PROVIDER` | `openai` | 记忆 embedding provider | 长期记忆向量化 |
-| `MEMORY_EMBEDDER_MODEL` | `text-embedding-3-small` | 记忆 embedding 模型 | 长期记忆向量化 |
-| `MEMORY_EMBEDDER_API_KEY_ENV` | `OPENAI_API_KEY` | 记忆 embedding API key 环境变量名 | 长期记忆向量化 |
-| `MEMORY_VECTOR_PROVIDER` | `qdrant` | 记忆向量库 provider | 长期记忆存储 |
-| `MEMORY_VECTOR_COLLECTION` | `aiagent_long_term_memory` | Qdrant collection 名称 | 长期记忆存储 |
-| `MEMORY_EMBEDDING_DIMS` | `1536` | 记忆 embedding 维度 | Qdrant collection 维度 |
-| `MEMORY_RESET_VECTOR_STORE` | `false` | 启动时是否重置向量库 | 调试时谨慎使用 |
-
-Qdrant：
+## Vision 配置
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `QDRANT_HOST` | `localhost` | Qdrant 地址 |
-| `QDRANT_PORT` | `6333` | Qdrant 端口 |
+| `VISION_PROVIDER` | `mock` | Vision provider |
+| `VISION_MODEL` | 空 | 视觉模型名称 |
+| `VISION_API_KEY_ENV` | 空 | Vision API key 所在环境变量名 |
+| `VISION_BASE_URL` | 空 | Vision base URL |
+| `VISION_TIMEOUT_SECONDS` | `60.0` | Vision HTTP 超时 |
+| `VISION_UPLOAD_DIR` | `data/uploads/images` | 上传图片保存目录 |
+| `VISION_MAX_IMAGE_BYTES` | `12582912` | 图片最大字节数，约 12 MB |
+| `VISION_CHARACTER_ROOT_DIR` | `data/characters` | 角色图库根目录 |
+| `VISION_CHARACTER_INDEX_DIR` | `data/cache/vision/character_index` | 角色图库索引缓存目录 |
+| `VISION_CHARACTER_EMBEDDING_MODEL_NAME` | `clip-ViT-B-32` | 角色图片 embedding 模型名 |
+| `VISION_CHARACTER_EMBEDDING_MODEL_PATH` | 空 | 本地 CLIP 模型路径 |
+| `VISION_CHARACTER_EMBEDDING_DEVICE` | `cpu` | 运行设备 |
+| `VISION_CHARACTER_EMBEDDING_LOCAL_FILES_ONLY` | `false` | 是否只使用本地模型 |
+| `VISION_CHARACTER_CONFIDENT_SCORE` | `0.78` | 角色确认阈值 |
 
-图记忆：
+V1.0 Vision 已区分：
+
+- `character_candidates`：候选角色，低置信度时可保守展示。
+- `recognized_characters`：已达确认阈值的角色。
+- `confidence_report`：视觉可信度报告。
+- `low_confidence_policy`：低置信度表达与记忆/Live2D 降级策略。
+
+这些策略字段目前没有独立 env 开关，统一由 `VISION_CHARACTER_CONFIDENT_SCORE` 和代码内默认策略控制。
+
+## Memory 配置
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
+| `MEMORY_LLM_PROVIDER` | `openai` | 记忆策略 LLM provider |
+| `MEMORY_LLM_MODEL` | `gpt-4o-mini` | 记忆策略模型 |
+| `MEMORY_LLM_API_KEY_ENV` | `OPENAI_API_KEY` | 记忆 LLM key 所在环境变量名 |
+| `MEMORY_EMBEDDER_PROVIDER` | `openai` | 记忆 embedding provider |
+| `MEMORY_EMBEDDER_MODEL` | `text-embedding-3-small` | 记忆 embedding 模型 |
+| `MEMORY_EMBEDDER_API_KEY_ENV` | `OPENAI_API_KEY` | 记忆 embedding key 所在环境变量名 |
+| `MEMORY_VECTOR_PROVIDER` | `qdrant` | 记忆向量库 provider |
+| `MEMORY_VECTOR_COLLECTION` | `aiagent_long_term_memory` | Qdrant collection |
+| `MEMORY_EMBEDDING_DIMS` | `1536` | 记忆 embedding 维度 |
+| `MEMORY_RESET_VECTOR_STORE` | `false` | 启动时是否重置向量库 |
+| `MEMORY_LONG_TERM_DEFAULT_ENABLED` | `true` | 新用户默认是否启用长期记忆自动检索与写入 |
+| `MEMORY_PREFERENCES_PATH` | `data/runtime/memory_preferences.json` | 用户级长期记忆开关持久化文件 |
+| `MEMORY_PROMPT_MAX_CHARS` | `1200` | 长期记忆注入 LLM prompt 的最大字符数 |
+| `MEMORY_PROMPT_PINNED_LIMIT` | `4` | 每轮最多强制注入的置顶记忆数量 |
+| `MEMORY_PROMPT_RELEVANT_LIMIT` | `6` | 每轮最多注入的普通检索记忆数量 |
+| `MEMORY_PROMPT_ITEM_MAX_CHARS` | `120` | 单条记忆压缩后的最大字符数 |
+| `QDRANT_HOST` | `localhost` | Qdrant host |
+| `QDRANT_PORT` | `6333` | Qdrant port |
 | `MEMORY_ENABLE_GRAPH` | `false` | 是否启用图记忆 |
 | `MEMORY_GRAPH_PROVIDER` | `neo4j` | 图数据库 provider |
 | `NEO4J_URL` | `bolt://localhost:7687` | Neo4j 地址 |
 | `NEO4J_USERNAME` | `neo4j` | Neo4j 用户名 |
 | `NEO4J_PASSWORD` | 空 | Neo4j 密码 |
-| `NEO4J_DATABASE` | `neo4j` | Neo4j 数据库 |
+| `NEO4J_DATABASE` | `neo4j` | Neo4j database |
 
-SiliconFlow 记忆 embedding 示例：
+V1.0 Memory 已有写入前策略：
 
-```env
-MEMORY_LLM_PROVIDER=siliconflow
-MEMORY_LLM_MODEL=你的记忆整理模型
-MEMORY_LLM_API_KEY_ENV=SILICONFLOW_API
+- `MemorySafetyFilter`：敏感内容过滤。
+- `MemoryDeduper`：重复记忆过滤。
+- `MemoryIntakeService`：生成最终写入计划。
 
-MEMORY_EMBEDDER_PROVIDER=siliconflow
-MEMORY_EMBEDDER_MODEL=你的 embedding 模型
-MEMORY_EMBEDDER_API_KEY_ENV=SILICONFLOW_API
-MEMORY_VECTOR_PROVIDER=qdrant
-MEMORY_VECTOR_COLLECTION=aiagent_long_term_memory
-MEMORY_EMBEDDING_DIMS=1024
-```
+生产环境切换 embedding 模型时，`MEMORY_EMBEDDING_DIMS` 必须同步调整，并重建 Qdrant collection。
 
-注意：
+V1.1 Memory 用户可控能力：
 
-- `MEMORY_EMBEDDING_DIMS` 必须和实际 embedding 模型输出维度一致。
-- Qdrant collection 已创建后，如果维度变了，需要重建 collection。
-- `MEMORY_RESET_VECTOR_STORE=true` 可能清空已有记忆，只建议测试环境使用。
+- 用户可以编辑自己的长期记忆。
+- 用户可以置顶或取消置顶长期记忆。
+- 用户可以把多条冲突记忆手动合并成一条最终版本。
+- 用户可以关闭长期记忆自动使用；关闭后主聊天不会自动检索或写入长期记忆，但已存在的记忆仍可查看、编辑、删除和合并。
+- 用户长期记忆开关默认值由 `MEMORY_LONG_TERM_DEFAULT_ENABLED` 控制，用户单独偏好保存在 `MEMORY_PREFERENCES_PATH`。
 
-影响文件：
+V1.1 第三批后，长期记忆进入 prompt 前会经过压缩：
 
-- `aiagent/memory/mem0_memory.py`
-- `aiagent/graphs/memory_graph.py`
-- `aiagent/services/memory_policy_llm_service.py`
-- `apps/api/routes/memory.py`
+- 置顶记忆不依赖相似度检索，会优先进入 prompt。
+- 普通检索记忆会按相关度、重要度、分层信息筛选。
+- prompt 会按身份、边界、偏好、目标等层级组织。
+- 如果记忆与用户当前表达冲突，以用户当前表达为准。
+- metadata 会记录 `memory_prompt_chars`、`memory_pinned_count`、`memory_prompt_truncated` 等字段。
+
+### V1.1 Memory Prompt 注入规则
+
+- 置顶记忆永远先于检索记忆进入 prompt。
+- 记忆层级顺序建议固定为：`profile -> boundary -> preference -> episode -> other`。
+- prompt 过长时优先保留置顶和高重要度记忆。
+- metadata 会记录 `memory_prompt_layer_counts`、`memory_prompt_selected_ids`、`memory_prompt_selected_layers`、`memory_prompt_compression_reason`。
+- 本批次不新增新的 env 开关，先用代码内默认策略收口。
 
 ## TTS 配置
 
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `TTS_PROVIDER` | `mock` | TTS provider | `aiagent.expression.tts_dispatcher.TTSDispatcher` |
-| `ENABLE_MOCK_TTS` | `true` | 是否强制使用 mock TTS | 语音合成 |
-| `TTS_TIMEOUT_SECONDS` | `60.0` | TTS 请求超时 | 外部 TTS 服务 |
-
-### GPT-SoVITS
-
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `GPT_SOVITS_BASE_URL` | `http://127.0.0.1:9880` | GPT-SoVITS 服务地址 |
+| `TTS_PROVIDER` | `mock` | TTS provider |
+| `ENABLE_MOCK_TTS` | `true` | 是否强制 mock TTS |
+| `ENABLE_LOCAL_AUDIO_PLAYBACK` | `false` | 后端是否本地播放音频 |
+| `TTS_TIMEOUT_SECONDS` | `60.0` | TTS 超时 |
+| `GPT_SOVITS_BASE_URL` | `http://127.0.0.1:9880` | GPT-SoVITS base URL |
 | `GPT_SOVITS_REF_AUDIO_PATH` | 空 | 参考音频路径 |
-| `GPT_SOVITS_PROMPT_TEXT` | 当前源码里该默认值存在乱码，建议在 `.env` 中覆盖 | 参考音频文本 |
+| `GPT_SOVITS_PROMPT_TEXT` | `你好，欢迎来到直播间。` | 参考音频文本 |
 | `GPT_SOVITS_PROMPT_LANG` | `zh` | prompt 语言 |
 | `GPT_SOVITS_TEXT_LANG` | `zh` | 输入文本语言 |
-
-示例：
-
-```env
-ENABLE_MOCK_TTS=false
-TTS_PROVIDER=gpt_sovits
-GPT_SOVITS_BASE_URL=http://127.0.0.1:9880
-GPT_SOVITS_REF_AUDIO_PATH=data/audio/ref/yzl.wav
-GPT_SOVITS_PROMPT_TEXT=你好，欢迎来到直播间。
-GPT_SOVITS_PROMPT_LANG=zh
-GPT_SOVITS_TEXT_LANG=zh
-```
-
-### IndexTTS2
-
-| 配置项 | 默认值 | 说明 |
-| --- | --- | --- |
-| `INDEX_TTS2_BASE_URL` | `http://127.0.0.1:8000` | IndexTTS2 服务地址 |
+| `INDEX_TTS2_BASE_URL` | `http://127.0.0.1:8000` | IndexTTS2 base URL |
 | `INDEX_TTS2_REF_AUDIO_PATH` | 空 | 参考音频路径 |
 | `INDEX_TTS2_EMO_ALPHA` | `0.6` | 情绪强度 |
 | `INDEX_TTS2_USE_EMO_TEXT` | `true` | 是否使用情绪文本 |
 | `INDEX_TTS2_MAX_SEGMENT_LENGTH` | `20` | 最大分段长度 |
+| `VOXCPM_BASE_URL` | 远程默认值 | VoxCPM base URL |
 
-示例：
+V1.0 建议移动端播放音频，后端保留 `ENABLE_LOCAL_AUDIO_PLAYBACK=false`。
 
-```env
-ENABLE_MOCK_TTS=false
-TTS_PROVIDER=indextts2
-INDEX_TTS2_BASE_URL=http://127.0.0.1:8001
-INDEX_TTS2_REF_AUDIO_PATH=data/audio/ref/yzl.wav
-INDEX_TTS2_EMO_ALPHA=0.6
-INDEX_TTS2_USE_EMO_TEXT=true
-```
-
-### VoxCPM
+## ASR 与语音配置
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `VOXCPM_BASE_URL` | 远程服务地址 | VoxCPM 服务地址 |
-
-示例：
-
-```env
-ENABLE_MOCK_TTS=false
-TTS_PROVIDER=voxcpm
-VOXCPM_BASE_URL=你的 VoxCPM 服务地址
-```
-
-影响文件：
-
-- `aiagent/expression/tts_dispatcher.py`
-- `integrations/tts/mock_tts_client.py`
-- `integrations/tts/gpt_sovits_client.py`
-- `integrations/tts/indextts2_client.py`
-- `integrations/tts/voxcpm_client.py`
-
-## ASR 配置
-
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `ASR_PROVIDER` | `mock` | ASR provider | `aiagent.perception.asr_listener.ASRListener` |
-| `ENABLE_MOCK_ASR` | `true` | 是否强制使用 mock ASR | 语音识别 |
-| `ASR_MODEL_SIZE` | `medium` | faster-whisper 模型规格 | 本地 ASR |
-| `ASR_MODEL_PATH` | 空 | 本地模型路径 | 本地 ASR |
-| `ASR_DEVICE` | `cpu` | 运行设备 | 本地 ASR |
-| `ASR_COMPUTE_TYPE` | `int8` | 计算类型 | 本地 ASR |
-| `ASR_LANGUAGE` | `zh` | 识别语言 | 本地 ASR |
-| `ASR_SAMPLE_RATE` | `16000` | 采样率 | 麦克风录音 |
-| `ASR_RECORD_SECONDS` | `10` | 单次录音秒数 | 录音控制 |
-
-语音会话参数：
-
-| 配置项 | 默认值 | 说明 |
-| --- | --- | --- |
-| `VOICE_CHUNK_SECONDS` | `0.25` | 音频块长度 |
-| `VOICE_MAX_RECORD_SECONDS` | `8.0` | 最大录音时长 |
+| `ASR_PROVIDER` | `mock` | ASR provider |
+| `ENABLE_MOCK_ASR` | `true` | 是否强制 mock ASR |
+| `ASR_API_BASE_URL` | 空 | API ASR base URL |
+| `ASR_API_KEY` | 空 | API ASR key |
+| `ASR_MODEL` | `whisper-large-v3` | ASR 模型 |
+| `ASR_TIMEOUT_SECONDS` | `60.0` | ASR 超时 |
+| `ASR_MODEL_SIZE` | `medium` | faster-whisper 模型规格 |
+| `ASR_MODEL_PATH` | 空 | 本地 ASR 模型路径 |
+| `ASR_DEVICE` | `cpu` | 运行设备 |
+| `ASR_COMPUTE_TYPE` | `int8` | 计算类型 |
+| `ASR_LANGUAGE` | `zh` | 识别语言 |
+| `ASR_SAMPLE_RATE` | `16000` | 录音采样率 |
+| `ASR_RECORD_SECONDS` | `10` | 固定录音秒数 |
+| `VOICE_CHUNK_SECONDS` | `0.25` | 流式录音块长度 |
+| `VOICE_MAX_RECORD_SECONDS` | `8.0` | 最大回合录音时长 |
 | `VOICE_SILENCE_SECONDS` | `1.2` | 静音结束阈值 |
 | `VOICE_ENERGY_THRESHOLD` | `0.015` | VAD 能量阈值 |
 
-faster-whisper 示例：
+V1.0 语音实时接口使用标准 call 状态：
 
-```env
-ENABLE_MOCK_ASR=false
-ASR_PROVIDER=faster_whisper
-ASR_MODEL_SIZE=medium
-ASR_MODEL_PATH=data/models/faster-whisper-medium
-ASR_DEVICE=cpu
-ASR_COMPUTE_TYPE=int8
-ASR_LANGUAGE=zh
-```
-
-影响文件：
-
-- `aiagent/perception/asr_listener.py`
-- `aiagent/perception/voice_turn_manager.py`
-- `aiagent/perception/voice_session_controller.py`
-- `integrations/asr/faster_whisper_client.py`
-- `integrations/asr/mock_asr_client.py`
-- `integrations/asr/microphone.py`
-- `integrations/asr/vad.py`
-
-## Persona 配置
-
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `PERSONA_NAME` | `config/defaults.py` 中定义 | 默认 persona 名称 | fallback persona |
-| `PERSONA_DESCRIPTION` | `config/defaults.py` 中定义 | 默认 persona 描述 | fallback persona |
-| `PERSONA_STYLE` | `config/defaults.py` 中定义 | 默认说话风格 | fallback persona |
-| `PERSONA_RULES` | `config/defaults.py` 中定义 | 默认 persona 规则 | fallback persona |
-
-注意：
-
-- 当前 `config/defaults.py` 中 persona 默认文本存在乱码，建议后续修正源码默认值。
-- 实际角色配置应优先使用 `data/persona/{persona_id}/persona.yaml`。
-- 当前默认角色 `yzl` 的参考音频在 `data/persona/yzl/refaudio.wav`。
-
-影响文件：
-
-- `aiagent/persona/persona_loader.py`
-- `aiagent/persona/persona_manager.py`
-- `aiagent/persona/persona_runtime.py`
-- `aiagent/persona/persona_guard.py`
-- `data/persona/{persona_id}/persona.yaml`
+- `status`：`active`、`ended`、`error`
+- `phase`：`idle`、`uploaded`、`transcribing`、`thinking`、`speaking`、`empty_turn`、`interrupted`、`completed`、`failed`
 
 ## Live2D 配置
 
-| 配置项 | 默认值 | 说明 | 影响范围 |
-| --- | --- | --- | --- |
-| `LIVE2D_PROVIDER` | `mock` | Live2D 输出 provider | `aiagent.expression.live2d_payload_dispatcher` |
-| `ENABLE_LIVE2D_RUNTIME` | `false` | 是否启用 Python Live2D runtime | `integrations/live2d/live2d_py_runtime.py` |
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `LIVE2D_PROVIDER` | `mock` | Live2D 输出 provider |
+| `ENABLE_LIVE2D_RUNTIME` | `false` | 是否启用 Python Live2D runtime |
 
-当前 Live2D 资源约定：
+V1.0 后端重点是稳定输出 payload schema，移动端负责模型加载和动作执行。正式 Live2D 资源路径约定：
 
 ```text
 data/live2d/characters/{character_id}/profile.yaml
@@ -459,137 +388,69 @@ data/live2d/characters/{character_id}/model/*.model3.json
 data/live2d/backgrounds/
 ```
 
-常见配置：
+## Persona 配置
 
-```env
-LIVE2D_PROVIDER=file
-ENABLE_LIVE2D_RUNTIME=true
-```
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `PERSONA_NAME` | `config/defaults.py` | fallback persona 名称 |
+| `PERSONA_DESCRIPTION` | `config/defaults.py` | fallback persona 描述 |
+| `PERSONA_STYLE` | `config/defaults.py` | fallback 说话风格 |
+| `PERSONA_RULES` | `config/defaults.py` | fallback 角色规则 |
 
-如果只需要 mock 输出：
+优先使用 `data/persona/{persona_id}/persona.yaml` 管理正式 persona。`.env` 中的 persona 字段仅作为 fallback。
 
-```env
-LIVE2D_PROVIDER=mock
-ENABLE_LIVE2D_RUNTIME=false
-```
+## Worker 与部署脚本变量
 
-影响文件：
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `WEB_CONCURRENCY` | `2` | API 容器 uvicorn worker 数 |
+| `WORKER_CONCURRENCY` | `1` | worker 并发任务循环数 |
+| `TASK_QUEUE_NAME` | `default` | worker 监听队列名 |
+| `TASK_POP_TIMEOUT_SECONDS` | `5` | worker pop 阻塞超时 |
+| `TASK_STALE_SECONDS` | `1800` | stale running task 恢复阈值 |
+| `POSTGRES_PASSWORD` | `change-me-before-production` | docker compose Postgres 密码 |
 
-- `aiagent/live2d/models.py`
-- `aiagent/live2d/registry.py`
-- `aiagent/live2d/payload_builder.py`
-- `aiagent/live2d/motion_mapper.py`
-- `aiagent/live2d/scene_mapper.py`
-- `aiagent/expression/live2d_payload_dispatcher.py`
-- `aiagent/expression/mock_live2d_dispatcher.py`
-- `integrations/live2d/*`
-- `apps/api/routes/live2d.py`
+当前代码没有读取 `TASK_MAX_ATTEMPTS` 环境变量。任务最大重试次数由 enqueue 调用传入，V1.0 env 示例不再提供该字段。
 
-## 推荐配置组合
+## Qt 调试端变量
 
-### 纯文本开发
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `AIAGENT_API_BASE_URL` | `http://127.0.0.1:8000` | Qt 调试端 API 地址 |
+| `AIAGENT_API_TIMEOUT` | `120` | Qt 调试端请求超时 |
+| `AIAGENT_DESKTOP_USER_ID` | `desktop-user` | Qt 调试端 user id |
+| `AIAGENT_DESKTOP_USERNAME` | `Desktop` | Qt 调试端用户名 |
+| `AIAGENT_LIVE2D_MODEL3` | 空 | Qt 调试端 Live2D model3 路径 |
 
-```env
-ENABLE_MOCK_LLM=false
-LLM_PROVIDER=siliconflow
-LLM_MODEL=你的聊天模型名称
-SILICONFLOW_API=你的 key
-SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1
+这些字段只影响 Qt 调试端，不影响 FastAPI 后端。
 
-ENABLE_MOCK_STATE=true
-ENABLE_MOCK_PLANNER=true
-ENABLE_MOCK_TTS=true
-ENABLE_MOCK_ASR=true
-VISION_PROVIDER=mock
-LIVE2D_PROVIDER=mock
-```
+## Readiness 与诊断
 
-### 多模态开发
+| 接口 | 用途 | 认证 |
+| --- | --- | --- |
+| `GET /live` | 进程存活检查 | 无 |
+| `GET /health` | API 基础健康检查 | 无 |
+| `GET /ready` | 平台 readiness，判断是否可接流量 | 无 |
+| `GET /cloud/ops/readiness` | 管理端详细 readiness | `x-cloud-admin-token` |
+| `GET /runtime/diagnostics` | 运行时诊断 | 无 |
+| `GET /runtime/capabilities` | 能力状态快照 | 无 |
 
-```env
-ENABLE_MOCK_LLM=false
-LLM_PROVIDER=siliconflow
-LLM_MODEL=你的聊天模型名称
-SILICONFLOW_API=你的 key
+`/ready` 用于负载均衡和容器 healthcheck。`/cloud/ops/readiness` 用于管理员排障，包含更多部署细节，因此需要 admin token。
 
-VISION_PROVIDER=siliconflow
-VISION_MODEL=你的视觉模型名称
-VISION_API_KEY_ENV=SILICONFLOW_API
-VISION_BASE_URL=https://api.siliconflow.cn/v1
-VISION_TIMEOUT_SECONDS=180
+## 安全要求
 
-VISION_CHARACTER_ROOT_DIR=data/characters
-VISION_CHARACTER_INDEX_DIR=data/cache/vision/character_index
-VISION_CHARACTER_EMBEDDING_MODEL_PATH=data/models/clip
-VISION_CHARACTER_EMBEDDING_LOCAL_FILES_ONLY=true
-```
+- 真实 `.env`、`cloud.tencent.env` 不提交。
+- `CLOUD_ADMIN_TOKEN`、`GPU_API_TOKEN`、`OPENAI_API_KEY`、`SILICONFLOW_API`、S3/COS secret 不写入日志。
+- 生产环境不要使用 `change-*`、`your-*` 占位符。
+- 生产环境确认 `CLOUD_MODE=true`、`RATE_LIMIT_ENABLED=true`、`INFLIGHT_LIMIT_ENABLED=true`。
+- 如果 `MEMORY_RESET_VECTOR_STORE=true`，启动时可能清空现有记忆，只能用于测试环境。
 
-### 本地语音开发
+## 最终验证入口
 
-```env
-ENABLE_MOCK_ASR=false
-ASR_PROVIDER=faster_whisper
-ASR_MODEL_PATH=data/models/faster-whisper-medium
-ASR_DEVICE=cpu
-ASR_COMPUTE_TYPE=int8
+V1.0 最终 smoke 指令见：
 
-ENABLE_MOCK_TTS=false
-TTS_PROVIDER=gpt_sovits
-GPT_SOVITS_BASE_URL=http://127.0.0.1:9880
-GPT_SOVITS_REF_AUDIO_PATH=data/audio/ref/yzl.wav
-GPT_SOVITS_PROMPT_TEXT=你好，欢迎来到直播间。
-```
+- [v1-final-smoke.md](v1-final-smoke.md)
 
-### Live2D 调试
+V1.0 release checklist 见：
 
-```env
-LIVE2D_PROVIDER=file
-ENABLE_LIVE2D_RUNTIME=true
-```
-
-并确认存在：
-
-```text
-data/live2d/characters/yzl/profile.yaml
-data/live2d/characters/yzl/model/yzl.model3.json
-```
-
-## 诊断与测试
-
-运行时诊断：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\test_runtime_diagnostics.ps1
-```
-
-统一测试：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\test_all.ps1 -ContinueOnFailure
-```
-
-视觉/多模态检查：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\test_all.ps1 -ContinueOnFailure
-```
-
-Live2D 单测：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\test_live2d_payload.ps1
-```
-
-## 已知配置风险
-
-历史代码中曾出现过默认中文文本编码问题，后续如果再次发现乱码，优先检查：
-
-- `config/defaults.py` 中的 persona 默认文本
-- 个别 API route 或 prompt 旧版本中的中文文本
-
-建议后续单独做一次编码清理：
-
-1. 统一以 UTF-8 保存源码。
-2. 修正默认中文文本。
-3. 避免 PowerShell 非 UTF-8 输出污染文件。
-4. 对中文配置优先放入 `.env` 或 YAML 数据文件。
+- [v1-release-checklist.md](v1-release-checklist.md)

@@ -13,6 +13,8 @@ from aiagent.knowledge.document_loader import DocumentLoader
 from aiagent.knowledge.reranker import SimpleReranker
 from aiagent.knowledge.retriever import HybridRetriever, RetrievedChunk
 from aiagent.knowledge.vector_store import LangChainVectorStore
+from aiagent.knowledge.rag_citations import build_rag_citations
+from aiagent.knowledge.rag_confidence import evaluate_rag_confidence
 from config.paths import KNOWLEDGE_CACHE_DIR, KNOWLEDGE_PUBLIC_DIR
 
 
@@ -211,10 +213,37 @@ class RAGPipeline:
                 "cosine_score": round(chunk.cosine_score, 6) if chunk.cosine_score is not None else None,
                 "retrieval_sources": chunk.retrieval_sources,
                 "preview": chunk.content[:260],
+                "content": chunk.content,
             }
             for chunk in self.retrieve(query=query, top_k=top_k)
         ]
+    
+    def inspect(
+                self,
+                query: str,
+                top_k: int = 4,
+                min_cosine_score: float = 0.38,
+        ) -> dict[str,Any]:
+            chunks = self.debug_retrieve(query=query, top_k=top_k)
+            confidence = evaluate_rag_confidence(
+                chunks,
+                min_cosine_score=min_cosine_score,
+                allow_bm25_only=True,
+            )
 
+            usable_chunks = chunks if confidence.should_inject else []
+            citations = build_rag_citations(usable_chunks, max_citations=top_k)
+
+            return {
+                "ok": True,
+                "query": query,
+                "top_k": top_k,
+                "should_inject": confidence.should_inject,
+                "confidence": confidence.model_dump(mode="json"),
+                "citations": [citation.model_dump(mode="json") for citation in citations],
+                "chunks": chunks,
+                "prompt_context": self._format_debug_chunks(usable_chunks),
+            }
     def stats(self) -> dict[str, Any]:
         return {
             "knowledge_dir": str(self.knowledge_dir),
@@ -243,7 +272,35 @@ class RAGPipeline:
             f"余弦相似度: {cosine_score}\n"
             f"内容:\n{chunk.content.strip()}"
         )
+    def _format_debug_chunks(self, chunks: list[dict[str, Any]]) -> str:
+        if not chunks:
+            return "无相关知识"
 
+        return "\n\n".join(
+            self._format_debug_chunk(chunk, index)
+            for index, chunk in enumerate(chunks, start=1)
+        )
+
+
+    def _format_debug_chunk(self, chunk: dict[str, Any], index: int) -> str:
+        source_path = str(chunk.get("source_path", ""))
+        source_name = Path(source_path).name if source_path else "unknown"
+        sources = chunk.get("retrieval_sources") or []
+        source_text = ", ".join(str(item) for item in sources) if sources else "unknown"
+
+        cosine_score = chunk.get("cosine_score")
+        cosine_text = f"{cosine_score:.4f}" if isinstance(cosine_score, (int, float)) else "无"
+
+        return (
+            f"[知识片段 {index}]\n"
+            f"标题: {chunk.get('title', '')}\n"
+            f"来源: {source_name}\n"
+            f"召回方式: {source_text}\n"
+            f"BM25排名: {chunk.get('bm25_rank') if chunk.get('bm25_rank') is not None else '无'}\n"
+            f"向量排名: {chunk.get('vector_rank') if chunk.get('vector_rank') is not None else '无'}\n"
+            f"余弦相似度: {cosine_text}\n"
+            f"内容:\n{str(chunk.get('content', '')).strip()}"
+        )
     def _save_documents(self, documents: list[Document]) -> None:
         self.docs_index_path.parent.mkdir(parents=True, exist_ok=True)
 

@@ -18,6 +18,8 @@ class KnowledgeSearchRequest(BaseModel):
     query: str
     top_k: int = 4
     include_prompt_context: bool = True
+    include_citations: bool = True
+    include_confidence: bool = True
 
 
 class KnowledgeRebuildRequest(BaseModel):
@@ -57,7 +59,7 @@ def knowledge_rebuild_status():
 def knowledge_search(req: KnowledgeSearchRequest):
     runtime = get_runtime()
 
-    chunks = runtime.search_knowledge(
+    inspection = runtime.inspect_knowledge(
         query=req.query,
         top_k=req.top_k,
     )
@@ -65,15 +67,23 @@ def knowledge_search(req: KnowledgeSearchRequest):
     body = {
         "ok": True,
         "query": req.query,
+        "normalized_query": inspection.get("query", req.query),
         "top_k": req.top_k,
-        "chunks": chunks,
+        "should_inject": inspection.get("should_inject", False),
+        "chunks": inspection.get("chunks", []),
     }
 
     if req.include_prompt_context:
-        body["prompt_context"] = runtime.get_knowledge_prompt_context(
-            query=req.query,
-            top_k=req.top_k,
-        )
+        body["prompt_context"] = inspection.get("prompt_context", "")
+
+    if req.include_citations:
+        body["citations"] = inspection.get("citations", [])
+
+    if req.include_confidence:
+        body["confidence"] = inspection.get("confidence", {})
+
+    if "reason" in inspection:
+        body["reason"] = inspection["reason"]
 
     return Response(
         content=json.dumps(body, ensure_ascii=False, default=str),
