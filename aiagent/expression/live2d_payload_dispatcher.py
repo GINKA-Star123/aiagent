@@ -1,6 +1,8 @@
 """Dispatch motion and expression commands to Live2D."""
 from __future__ import annotations
 
+from langsmith import traceable
+
 from aiagent.schemas.outputs import ResponsePacket
 from aiagent.live2d.payload_contract import normalize_live2d_payload
 from integrations.live2d.file_live2d_client import FileLive2DClient
@@ -10,6 +12,7 @@ class Live2DPayloadDispatcher:
     def __init__(self,client:FileLive2DClient) -> None:
         self.client = client
 
+    @traceable(name="live2d", run_type="tool")
     def dispatch(self, packet: ResponsePacket) -> ResponsePacket:
         metadata = packet.metadata or {}
 

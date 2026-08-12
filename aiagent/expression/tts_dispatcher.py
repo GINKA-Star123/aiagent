@@ -6,6 +6,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+from langsmith import traceable
+
 from aiagent.schemas.outputs import ResponsePacket
 from aiagent.state.speaking_state import SpeakingState
 from integrations.tts.gpt_sovits_client import GPTSoVITSClient
@@ -78,6 +80,7 @@ class TTSDispatcher:
         self.speaking_state.last_updated_at = self._now()
         return packet
 
+    @traceable(name="tts", run_type="tool")
     def _synthesize(self, text: str) -> tuple[str, list[str], list[str]]:
         if self.enable_mock_tts or self.tts_provider == "mock":
             audio_path = self.mock_tts_client.synthesize(text)

@@ -176,7 +176,7 @@ Qt 端适合本地调试聊天、运行时快照、Live2D payload 和诊断结�
 | `GET /live2d/stats` | Live2D 资源状态 |
 | `POST /live2d/preview` | Live2D payload 预览 |
 
-API 请求追踪、`request_id` 和错误结构见 [docs/api-observability.md](docs/api-observability.md)。
+API 请求追踪、`request_id` 和错误结构见 [docs/api-observability.md](docs/api-observability.md)；完整聊天链路的 LangSmith Trace 配置与验证见 [docs/langsmith-tracing.md](docs/langsmith-tracing.md)。
 
 ## 测试与诊断
 
