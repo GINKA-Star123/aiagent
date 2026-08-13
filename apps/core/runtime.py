@@ -4,6 +4,9 @@ CoreRuntime 是 API 路由和本地工具共用的门面。它把 HTTP 友好的
 转换成 InputEvent，再交给 dispatcher 和图流程执行推理。
 """
 from typing import Any
+
+from langsmith import traceable
+
 from apps.core.capabilities import CapabilityRegistry
 
 from aiagent.brain.agent_core import AgentCore
@@ -82,6 +85,7 @@ class CoreRuntime:
         self.vision_runner = vision_runner
         self.capabilities = capabilities or CapabilityRegistry()
 
+    @traceable(name="agent_turn", run_type="chain")
     def handle_input_event(self, event: InputEvent) -> OutputEvent:
         """把标准化后的输入事件交给编排器处理。"""
         return self.dispatcher.handle_input(event)
