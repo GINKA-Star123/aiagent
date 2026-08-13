@@ -90,6 +90,7 @@ def build_bm25_baseline_pipeline(
 
 def evaluate_case(case: RAGEvalCase, hits: list[dict[str, Any]]) -> RAGEvalCaseResult:
     top_hits = [RAGEvalHit(**hit) for hit in hits[: case.top_k]]
+
     forbidden = _find_forbidden_hit(case, top_hits)
     if forbidden is not None:
         return RAGEvalCaseResult(
@@ -101,6 +102,20 @@ def evaluate_case(case: RAGEvalCase, hits: list[dict[str, Any]]) -> RAGEvalCaseR
             matched_source_path=forbidden.source_path,
             matched_title=forbidden.title,
             top_hits=top_hits,
+            extra={"match_mode":case.match_mode},
+        )
+
+    missing_required = _missing_required_source_paths(case, top_hits)
+    if missing_required:
+        return RAGEvalCaseResult(
+            case_id=case.case_id,
+            category=case.category,
+            query=case.query,
+            passed=False,
+            reason="missing_required_source_paths",
+            top_hits=top_hits,
+            extra={"match_mode":case.match_mode,
+                   "missing_required_source_paths":missing_required},
         )
 
     best_rank: int | None = None
@@ -113,14 +128,22 @@ def evaluate_case(case: RAGEvalCase, hits: list[dict[str, Any]]) -> RAGEvalCaseR
         title_matched = _title_matches(case, hit)
         matched_terms = _matched_terms(case, hit)
 
-        if not (source_matched or title_matched or matched_terms):
+        if not _hit_matches_mode(
+            case.match_mode,
+            source_matched=source_matched,
+            title_matched=title_matched,
+            term_matched=bool(matched_terms),
+        ):
+            continue
+
+        if case.expected_terms and not matched_terms:
             continue
 
         priority = 0
         if source_matched:
-            priority += 1
+            priority += 3
         if title_matched:
-            priority += 1
+            priority += 2
         if matched_terms:
             priority += 1
 
@@ -397,6 +420,41 @@ def _ratio(numerator: float, denominator: int) -> float:
         return 0.0
     return round(float(numerator) / float(denominator), 6)
 
+def _hit_matches_mode(
+        match_mode: str,
+        *,
+        source_matched: bool,
+        title_matched: bool,
+        term_matched: bool,
+) -> bool:
+    if match_mode == "source":
+        return source_matched
+    if match_mode == "title":
+        return title_matched
+    if match_mode == "terms":
+        return term_matched
+    return source_matched or title_matched or term_matched
+
+def _missing_required_source_paths(
+        case: RAGEvalCase,
+        hits: list[RAGEvalHit],
+) -> list[str]:
+    if not case.required_source_paths:
+        return []
+
+    normalized_hit_paths = [_normalize_path(hit.source_path) for hit in hits]
+    missing: list[str] = []
+
+    for expected in case.required_source_paths:
+        normalized_expected = _normalize_path(expected)
+        if not any(
+            hit_path == normalized_expected or hit_path.endswith(normalized_expected)
+            for hit_path in normalized_hit_paths
+        ):
+            missing.append(expected)
+
+    return missing
+    
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -100,14 +100,27 @@ class VisionConfidencePolicy:
             VisionImageType.UNKNOWN,
         } and bool(candidates)
 
-        avoid_identity_assertion = (
-            identity_candidate_exists
-            and character_score < self.character_confident_score
+        identity_confirmed = (
+            normalized_type == VisionImageType.CHARACTER
+            and character_score >= self.character_confident_score
         )
 
-        active = (
-            level in {VisionConfidenceLevel.LOW, VisionConfidenceLevel.UNCERTAIN}
-            or avoid_identity_assertion
+        avoid_identity_assertion = (
+            identity_candidate_exists
+            and not identity_confirmed
+        )
+
+        low_score_active = level in {
+            VisionConfidenceLevel.LOW,
+            VisionConfidenceLevel.UNCERTAIN,
+        }
+
+        active = low_score_active or avoid_identity_assertion
+
+        reply_instruction = self._build_reply_instruction(
+            normalized_type=normalized_type,
+            active=active,
+            avoid_identity_assertion=avoid_identity_assertion,
         )
 
         reason_parts: list[str] = []
@@ -139,11 +152,6 @@ class VisionConfidencePolicy:
             candidate_count=len(candidates),
         )
 
-        if active:
-            instruction = "视觉结果不够确定。回答时使用保守语气；角色身份只能作为候选提及，不要说成已经确认。"
-        else:
-            instruction = "可以正常使用视觉分析结果；仍然不要编造图片里没有的信息。"
-
         policy = VisionLowConfidencePolicy(
             active=active,
             reason=reason if active else "",
@@ -152,7 +160,22 @@ class VisionConfidencePolicy:
             expose_candidates=avoid_identity_assertion and bool(candidates),
             defer_memory_hint=active,
             suppress_live2d_override=normalized_type == VisionImageType.CHARACTER and avoid_identity_assertion,
-            reply_instruction=instruction,
+            reply_instruction=reply_instruction,
         )
 
         return normalized_type, confirmed_characters, report, policy
+
+    def _build_reply_instruction(
+            self,
+            *,
+            normalized_type: VisionImageType,
+            active: bool,
+            avoid_identity_assertion: bool,
+        ) -> str:
+        if not active:
+            return "可以正常使用视觉分析结果，但不要编造图片里没有的信息。"
+        if avoid_identity_assertion:
+            return "视觉结果不够确定。候选角色只能作为参考，不能写成已确认身份。"
+        if normalized_type in SCENE_IMAGE_TYPES:
+            return "场景理解置信度不足，请优先描述可见场景、物体和文字，不要强行认角色。"
+        return "视觉结果不够确定，请使用保守语气回答。"

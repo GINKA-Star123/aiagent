@@ -5,6 +5,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from aiagent.graphs.graph_model import VisionAnalyzeResult, VisionLive2DSuggestion
+from aiagent.graphs.metadata_utils import mark_stage_done, now_perf
 from aiagent.services.vision_service import VisionService
 
 
@@ -50,7 +51,8 @@ class VisionRunner:
         user_prompt: str = "",
         user_id: str = "guest",
     ) -> VisionGraphState:
-        return self.graph.invoke(  # type: ignore
+        started_at = now_perf()
+        result = self.graph.invoke(  # type: ignore
             {
                 "file_obj": file_obj,
                 "filename": filename,
@@ -58,6 +60,22 @@ class VisionRunner:
                 "user_id": user_id,
             }
         )
+        metadata = mark_stage_done(
+            dict(result.get("metadata", {})),
+            "vision_graph",
+            started_at,
+        )
+        result["metadata"] = metadata
+
+        vision_result = result.get("vision_result")
+        if isinstance(vision_result, VisionAnalyzeResult):
+            vision_result.metadata = mark_stage_done(
+                dict(vision_result.metadata),
+                "vision_graph",
+                started_at,
+            )
+
+        return result
 
     def analyze_path(
         self,
@@ -65,13 +83,30 @@ class VisionRunner:
         user_prompt: str = "",
         user_id: str = "guest",
     ) -> VisionGraphState:
-        return self.graph.invoke(  # type: ignore
+        started_at = now_perf()
+        result = self.graph.invoke(  # type: ignore
             {
                 "image_path": image_path,
                 "user_prompt": user_prompt,
                 "user_id": user_id,
             }
         )
+        metadata = mark_stage_done(
+            dict(result.get("metadata", {})),
+            "vision_graph",
+            started_at,
+        )
+        result["metadata"] = metadata
+
+        vision_result = result.get("vision_result")
+        if isinstance(vision_result, VisionAnalyzeResult):
+            vision_result.metadata = mark_stage_done(
+                dict(vision_result.metadata),
+                "vision_graph",
+                started_at,
+            )
+
+        return result
 
     def _analyze_image_node(self, state: VisionGraphState) -> VisionGraphState:
         user_prompt = state.get("user_prompt", "")

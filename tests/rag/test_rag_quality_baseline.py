@@ -37,6 +37,13 @@ def test_rag_quality_baseline_passes(tmp_path):
     assert summary.recall_at_1 >= 0.40
     assert summary.recall_at_3 >= 0.80
     assert summary.mrr >= 0.55
+    assert {"character", "workflow", "mixed"} <= {case.category for case in cases}
+    assert {"source", "any"} <= {case.match_mode for case in cases}
+    assert summary.total == len(cases)
+    assert summary.pass_rate >= 0.75
+    assert summary.recall_at_1 >= 0.40
+    assert summary.recall_at_3 >= 0.80
+    assert summary.mrr >= 0.55
 
     for result in results:
         assert result.case_id

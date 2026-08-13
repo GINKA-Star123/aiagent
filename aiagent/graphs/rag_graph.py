@@ -9,6 +9,7 @@ from aiagent.graphs.graph_model import RAGGraphInput, RAGGraphResult
 from aiagent.graphs.metadata_utils import (
     mark_stage_done,
     mark_stage_failed,
+    mark_stage_started,
     mark_stage_skipped,
     metadata_strings,
     now_perf,
@@ -66,6 +67,7 @@ class RAGRunner:
         planner_query: str = "",
         planner_should_retrieve: bool = False,
     ) -> RAGGraphResult:
+        started_at = now_perf()
         result = self.graph.invoke(
             {
                 "input": RAGGraphInput(
@@ -77,7 +79,14 @@ class RAGRunner:
                 )
             }
         )
-        return result["result"]
+        metadata = mark_stage_done(
+            dict(result.get("metadata", {})),
+            "rag_graph",
+            started_at,
+        )
+        rag_result = result["result"]
+        rag_result.metadata = metadata_strings(metadata)
+        return rag_result
 
     def _build_query_node(self, state: RAGGraphState) -> dict[str, object]:
         started_at = now_perf()
@@ -89,17 +98,19 @@ class RAGRunner:
         )
 
         metadata = mark_stage_done(
-        {
-            "rag_graph_status": "started",
-            "rag_query_source": "planner+fallback"
-            if graph_input.planner_query.strip()
-            else "fallback",
-            "planner_should_retrieve": graph_input.planner_should_retrieve,
-        },
-        "rag_build_query",
-        started_at,
-        rag_query=query,
-    )
+            mark_stage_started(
+                {
+                    "rag_query_source": "planner+fallback"
+                    if graph_input.planner_query.strip()
+                    else "fallback",
+                    "planner_should_retrieve": graph_input.planner_should_retrieve,
+                },
+                "rag_graph",
+            ),
+            "rag_build_query",
+            started_at,
+            rag_query=query,
+        )
 
         return {
             "query": query,

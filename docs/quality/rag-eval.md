@@ -348,6 +348,14 @@ powershell -ExecutionPolicy Bypass -File scripts\test_rag_quality_report.ps1 -Re
 - 负样本：等这一轮稳定后再补，避免过早把 chunk 切分噪音放大成阈值波动
 
 如果某一类开始下滑，先看：
+
 1. `query_normalizer.py`
 2. 文档 chunk 切分
 3. `reranker.py`
+
+- match_mode=source：必须命中 expected_source_paths。
+- match_mode=title：只按标题判断。
+- match_mode=term：只按关键词判断。
+- match_mode=any：允许 source/title/term 任一命中。
+- required_source_paths：关系题必须同时命中的来源集合。
+  

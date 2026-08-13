@@ -8,6 +8,7 @@ from aiagent.cognition.planner_normalizer import PlannerNormalizer
 from aiagent.cognition.planner_prompt import PlannerPromptBuilder
 from aiagent.cognition.planner_reply import ReplyPlanner
 from aiagent.graphs.graph_model import PlannerGraphInput, PlannerInferenceOutput,PlannerGraphResult
+from aiagent.graphs.metadata_utils import mark_stage_done, now_perf
 from aiagent.persona.persona_runtime import PersonaRuntime  
 
 class PlannerGraphState(TypedDict,total=False):
@@ -43,6 +44,7 @@ class PlannerRunner:
         return graph.compile()
     
     def _build_prompt_node(self,state:PlannerGraphState) -> PlannerGraphState:
+        started_at = now_perf()
         graph_input = state["input"] # type: ignore
         persona_runtime = state["persona_runtime"] # type: ignore
 
@@ -57,12 +59,20 @@ class PlannerRunner:
             persona_runtime=persona_runtime,
         )
 
+        metadata = mark_stage_done(
+            dict(state.get("metadata", {})),
+            "planner_prompt",
+            started_at,
+            planner_prompt="built",
+        )
+
         return {
             "prompt":prompt,
-            "metadata":{"planner_prompt":"built"}
+            "metadata":metadata
         }
     
     def _analyze_plan_node(self, state: PlannerGraphState) -> PlannerGraphState:
+        started_at = now_perf()
         graph_input = state["input"] # type: ignore
         prompt = state["prompt"] # type: ignore
 
@@ -71,8 +81,12 @@ class PlannerRunner:
             user_text=graph_input.user_text,
         )
 
-        metadata = dict(state.get("metadata", {}))
-        metadata["planner_inference"] = "model"
+        metadata = mark_stage_done(
+            dict(state.get("metadata", {})),
+            "planner_inference",
+            started_at,
+            planner_inference="model",
+        )
 
         return {
             "output": output,
@@ -80,9 +94,14 @@ class PlannerRunner:
         }
 
     def _normalize_plan_node(self, state: PlannerGraphState) -> PlannerGraphState:
+        started_at = now_perf()
         normalized = self.planner_normalizer.normalize(state["output"]) # type: ignore
-        metadata = dict(state.get("metadata", {})) 
-        metadata["planner_normalization"] = "hybrid"
+        metadata = mark_stage_done(
+            dict(state.get("metadata", {})),
+            "planner_normalization",
+            started_at,
+            planner_normalization="hybrid",
+        )
 
         return {
             "normalized_output": normalized,
@@ -96,6 +115,7 @@ class PlannerRunner:
         state_result,
         persona_runtime: PersonaRuntime,
     ) -> PlannerGraphResult:
+        started_at = now_perf()
         graph_input = PlannerGraphInput(
             user_text=user_text,
             user_name=user_name,
@@ -116,6 +136,11 @@ class PlannerRunner:
                 "input": graph_input,
                 "persona_runtime": persona_runtime,
             }
+        )
+        metadata = mark_stage_done(
+            dict(result.get("metadata", {})),
+            "planner_graph",
+            started_at,
         )
 
         normalized = result["normalized_output"]
@@ -138,5 +163,5 @@ class PlannerRunner:
             persona_id=graph_input.persona_id,
             persona_name=graph_input.persona_name,
             persona_alias=graph_input.persona_alias,
-            metadata=result.get("metadata", {}),
+            metadata=metadata,
         )

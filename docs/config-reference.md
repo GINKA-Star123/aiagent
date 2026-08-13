@@ -261,6 +261,18 @@ V1.0 Vision 已区分：
 - `confidence_report`：视觉可信度报告。
 - `low_confidence_policy`：低置信度表达与记忆/Live2D 降级策略。
 
+### Vision 输出契约
+
+- `result.schema_version`：当前固定为 `1.0`
+- `result.identity_confirmed`：角色身份是否已确认
+- `result.is_confident`：整体视觉分析是否可直接用于回复
+- `result.confidence_report.source`：`character_identity` / `scene_understanding` / `unknown_image_type`
+- `result.low_confidence_policy.active`：是否启用保守策略
+- `result.low_confidence_policy.avoid_identity_assertion`：是否禁止把候选写成已确认
+- `result.low_confidence_policy.defer_memory_hint`：是否延迟记忆建议
+- `result.low_confidence_policy.suppress_live2d_override`：是否抑制 Live2D 覆盖
+- `result.metadata.vision_*`：给 API / Graph / 测试共用的稳定追踪字段
+
 这些策略字段目前没有独立 env 开关，统一由 `VISION_CHARACTER_CONFIDENT_SCORE` 和代码内默认策略控制。
 
 ## Memory 配置

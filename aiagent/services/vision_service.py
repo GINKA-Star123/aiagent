@@ -22,6 +22,8 @@ from aiagent.graphs.graph_model import (
     VisionMemoryCandidate,
     VisionSafetyResult,
     VisionImageType,
+    VisionConfidenceLevel,
+    VISION_ANALYZE_SCHEMA_VERSION,
 )
 
 logger = logging.getLogger(__name__)
@@ -350,7 +352,10 @@ B. 日常图片：
         if low_policy.suppress_live2d_override:
             live2d = VisionLive2DSuggestion()   
 
+        identity_confirmed = bool(recognized)
+
         return VisionAnalyzeResult(
+            schema_version=VISION_ANALYZE_SCHEMA_VERSION,
             image_id=stored.image_id,
             image_path=str(stored.path),
             width=stored.width,
@@ -366,7 +371,14 @@ B. 日常图片：
             mood=str(model_data.get("mood", "")).strip(),
             character_candidates=character_candidates[:5],
             recognized_characters=recognized[:3],
-            is_confident=not low_policy.active,
+            identity_confirmed=identity_confirmed,
+            is_confident=(
+                confidence_report.level in {
+                    VisionConfidenceLevel.HIGH,
+                    VisionConfidenceLevel.MEDIUM,
+                }
+                and not low_policy.active
+            ),
             confidence=confidence_report.score,
             confidence_report=confidence_report,
             low_confidence_policy=low_policy,
@@ -374,18 +386,24 @@ B. 日常图片：
             memory=memory,
             live2d=live2d,
             raw_model_output=str(model_data.get("_raw_model_output", "")),
-            metadata={
-                "user_id": user_id,
-                "user_prompt": user_prompt,
-                "character_retrieval_candidates": [
-                    item.model_dump(mode="json")
-                    for item in candidates
-                ],
-                "vision_provider": self.provider,
-                "vision_model": self.model,
-                "confident_score": self.confident_score,
-                "vision_confidence_level": confidence_report.level,
+            metadata = {
+                "vision_schema_version": VISION_ANALYZE_SCHEMA_VERSION,
+                "vision_image_type": image_type.value,
+                "vision_confidence_score": confidence_report.score,
+                "vision_confidence_level": confidence_report.level.value,
                 "vision_low_confidence_active": low_policy.active,
+                "vision_low_confidence_avoid_identity_assertion": low_policy.avoid_identity_assertion,
+                "vision_low_confidence_defer_memory_hint": low_policy.defer_memory_hint,
+                "vision_low_confidence_suppress_live2d_override": low_policy.suppress_live2d_override,
+                "vision_identity_confirmed": identity_confirmed,
+                "vision_confirmed_character_ids": [item.character_id for item in recognized],
+                "vision_candidate_character_ids": [item.character_id for item in character_candidates[:5]],
+                "vision_candidate_count": len(character_candidates),
+                "vision_best_character_id": confidence_report.best_character_id,
+                "vision_best_character_name": confidence_report.best_character_name,
+                "character_retrieval_candidates": [
+                    item.model_dump(mode="json") for item in candidates
+                ],
             },
 )
     def _normalize_model_characters(

@@ -6,6 +6,7 @@ from enum import StrEnum
 from pydantic import AliasChoices, BaseModel, Field
 
 NO_LONG_TERM_MEMORY_TEXT = "无长期记忆。"
+VISION_ANALYZE_SCHEMA_VERSION = "1.0"
 
 class StateGraphInput(BaseModel):
     user_text: str
@@ -199,6 +200,7 @@ class DailySceneResult(BaseModel):
     notable_details:list[str] = Field(default_factory=list)
 
 class VisionAnalyzeResult(BaseModel):
+    schema_version: str = VISION_ANALYZE_SCHEMA_VERSION
     image_id: str
     image_path: str
     image_url: str = ""
@@ -227,6 +229,9 @@ class VisionAnalyzeResult(BaseModel):
     safety: VisionSafetyResult = Field(default_factory=VisionSafetyResult)
     memory: VisionMemoryCandidate = Field(default_factory=VisionMemoryCandidate)
     live2d: VisionLive2DSuggestion = Field(default_factory=VisionLive2DSuggestion)
+
+    identity_confirmed: bool = False
+    is_confident: bool = False
 
     raw_model_output: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)

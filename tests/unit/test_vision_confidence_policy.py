@@ -79,3 +79,26 @@ def test_unknown_image_with_no_confidence_is_uncertain():
     assert confirmed == []
     assert report.level == VisionConfidenceLevel.UNCERTAIN
     assert policy.active is True
+
+def test_character_low_confidence_suppresses_live2d_override_and_uses_conservative_reply():
+    image_type, confirmed, report, policy = VisionConfidencePolicy(
+        character_confident_score=0.78,
+        low_margin=0.12,
+    ).evaluate(
+        image_type="character",
+        model_confidence=0.69,
+        model_reason="unit",
+        character_candidates=[_candidate(0.69)],
+    )
+
+    assert image_type == "character"
+    assert confirmed == []
+    assert report.level == VisionConfidenceLevel.LOW
+    assert policy.active is True
+    assert policy.avoid_identity_assertion is True
+    assert policy.expose_candidates is True
+    assert policy.defer_memory_hint is True
+    assert policy.suppress_live2d_override is True
+    assert policy.use_conservative_wording is True
+    assert policy.reply_instruction
+    assert "保守" in policy.reply_instruction or "候选" in policy.reply_instruction

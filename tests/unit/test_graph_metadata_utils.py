@@ -1,6 +1,7 @@
 from aiagent.graphs.metadata_utils import (
     mark_stage_done,
     mark_stage_failed,
+    mark_stage_started,
     mark_stage_skipped,
     metadata_strings,
     now_perf,
@@ -32,6 +33,16 @@ def test_mark_stage_skipped_adds_reason():
 
     assert metadata["vision_graph_status"] == "skipped"
     assert metadata["vision_graph_skip_reason"] == "no_image_attachment"
+
+
+def test_mark_stage_started_adds_status():
+    metadata = mark_stage_started(
+        {"existing": "value"},
+        "state_graph",
+    )
+
+    assert metadata["existing"] == "value"
+    assert metadata["state_graph_status"] == "started"
 
 
 def test_mark_stage_failed_adds_error():

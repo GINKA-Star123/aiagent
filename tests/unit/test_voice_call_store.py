@@ -25,6 +25,8 @@ def test_voice_call_store_turn_flow():
     assert call.turn_count == 1
     assert call.last_turn_id.endswith(":1")
     assert call.phase == VoiceTurnPhase.UPLOADED
+    assert call.metadata["voice_realtime_phase"] == "uploaded"
+    assert call.metadata["voice_realtime_status"] == "active"
 
     call = store.mark_phase(call.call_id, VoiceTurnPhase.TRANSCRIBING)
     assert call is not None
@@ -34,6 +36,8 @@ def test_voice_call_store_turn_flow():
     assert call is not None
     assert call.last_transcript == "你好"
     assert call.phase == VoiceTurnPhase.THINKING
+    assert call.metadata["voice_asr_empty"] is False
+    assert call.metadata["voice_realtime_phase"] == "thinking"
 
     call = store.mark_output(
         call.call_id,
@@ -56,6 +60,7 @@ def test_voice_call_store_empty_turn():
     assert call is not None
     assert call.phase == VoiceTurnPhase.EMPTY_TURN
     assert call.last_transcript == ""
+    assert call.metadata["voice_asr_empty"] is True
 
 
 def test_voice_call_store_interrupt_and_end():
@@ -67,6 +72,7 @@ def test_voice_call_store_interrupt_and_end():
     assert call.phase == VoiceTurnPhase.INTERRUPTED
     assert call.interrupt_count == 1
     assert call.last_interrupt_reason == "unit_interrupt"
+    assert call.metadata["voice_realtime_phase"] == "interrupted"
 
     ended = store.end(call.call_id)
     assert ended.status == VoiceCallStatus.ENDED
@@ -85,3 +91,5 @@ def test_voice_call_store_fail_marks_error_state():
     assert call.status == VoiceCallStatus.ERROR
     assert call.phase == VoiceTurnPhase.FAILED
     assert call.last_error == "boom"
+    assert call.metadata["voice_realtime_status"] == "error"
+    assert call.metadata["voice_realtime_phase"] == "failed"

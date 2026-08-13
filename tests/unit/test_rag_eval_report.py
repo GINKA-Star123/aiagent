@@ -187,3 +187,4 @@ def test_build_eval_report_and_markdown_contains_failures():
     assert payload["passed"] is False
     assert report.metadata["case_count"] == 2
     assert report.metadata["category_count"] == 2
+

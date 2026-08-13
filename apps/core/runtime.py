@@ -9,6 +9,7 @@ from apps.core.capabilities import CapabilityRegistry
 from aiagent.brain.agent_core import AgentCore
 from aiagent.brain.dialogue_manager import DialogueManager
 from aiagent.graphs.memory_graph import MemoryRunner
+from aiagent.graphs.metadata_utils import mark_stage_done, now_perf
 from aiagent.graphs.vision_graph import VisionRunner
 from aiagent.knowledge.query_normalizer import normalize_rag_query
 from aiagent.knowledge.rag_pipeline import RAGPipeline
@@ -432,12 +433,19 @@ class CoreRuntime:
         if self.vision_service is None:
             raise RuntimeError("Vision service is not configured.")
 
-        return self.vision_service.analyze_upload(
+        started_at = now_perf()
+        result = self.vision_service.analyze_upload(
             file_obj=file_obj,
             filename=filename,
             user_prompt=user_prompt,
             user_id=user_id,
         )
+        result.metadata = mark_stage_done(
+            dict(result.metadata),
+            "vision_graph",
+            started_at,
+        )
+        return result
 
     def analyze_image_path(
         self,
@@ -448,11 +456,18 @@ class CoreRuntime:
         if self.vision_service is None:
             raise RuntimeError("Vision service is not configured.")
 
-        return self.vision_service.analyze_local_path(
+        started_at = now_perf()
+        result = self.vision_service.analyze_local_path(
             image_path=image_path,
             user_prompt=user_prompt,
             user_id=user_id,
         )
+        result.metadata = mark_stage_done(
+            dict(result.metadata),
+            "vision_graph",
+            started_at,
+        )
+        return result
 
     def handle_vision_chat_upload(
         self,

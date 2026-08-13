@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any,Literal
 
 from pydantic import BaseModel, Field
 
+RAGMatchMode = Literal["source","title","term","any"]
 
 class RAGEvalCase(BaseModel):
     case_id: str
@@ -13,6 +14,8 @@ class RAGEvalCase(BaseModel):
     expected_titles: list[str] = Field(default_factory=list)
     expected_terms: list[str] = Field(default_factory=list)
     forbidden_source_paths: list[str] = Field(default_factory=list)
+    required_source_paths: list[str] = Field(default_factory=list)
+    match_mode: RAGMatchMode = "source"
     top_k: int = 4
     max_rank: int = 3
     note: str = ""

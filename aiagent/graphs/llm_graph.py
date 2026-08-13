@@ -9,6 +9,7 @@ from langgraph.graph import END, START, MessagesState, StateGraph
 from langmem.short_term import RunningSummary, SummarizationNode
 
 from aiagent.graphs.graph_model import LLMGraphInput, LLMGraphResult
+from aiagent.graphs.metadata_utils import mark_stage_done, now_perf
 from aiagent.persona.persona_runtime import PersonaRuntime
 from aiagent.services.llm_service import LLMService
 from config.providers import LLMProvider
@@ -76,6 +77,7 @@ class LLMRunner:
         }
 
     def _build_prompt_node(self, state: LLMGraphState) -> dict[str, object]:
+        started_at = now_perf()
         graph_input = self._state_input(state)
         persona_runtime = self._get_persona_runtime(graph_input.thread_id)
 
@@ -97,20 +99,26 @@ class LLMRunner:
         prompt_messages: list[BaseMessage] = [SystemMessage(content=final_system_prompt)]
         prompt_messages.extend(summarized_messages)
 
+        metadata = mark_stage_done(
+            dict(state.get("metadata", {})),
+            "llm_prompt",
+            started_at,
+            llm_prompt="built",
+            short_term_window=str(self.short_term_turn_window),
+            history_message_count=str(len(summarized_messages)),
+            summary_enabled="true",
+            retrieved_context_count=str(len(graph_input.retrieved_context)),
+            long_term_memory_enabled="true",
+        )
+
         return {
             "final_system_prompt": final_system_prompt,
             "prompt_messages": prompt_messages,
-            "metadata": {
-                "llm_prompt": "built",
-                "short_term_window": str(self.short_term_turn_window),
-                "history_message_count": str(len(summarized_messages)),
-                "summary_enabled": "true",
-                "retrieved_context_count": str(len(graph_input.retrieved_context)),
-                "long_term_memory_enabled": "true",
-            },
+            "metadata": metadata,
         }
 
     def _call_llm_node(self, state: LLMGraphState) -> dict[str, object]:
+        started_at = now_perf()
         graph_input = self._state_input(state)
 
         raw_reply_text = self.llm_service.invoke_messages(
@@ -120,8 +128,12 @@ class LLMRunner:
             persona_name=graph_input.persona_alias or graph_input.persona_name,
         )
 
-        metadata = dict(state.get("metadata", {}))
-        metadata["llm_inference"] = "model"
+        metadata = mark_stage_done(
+            dict(state.get("metadata", {})),
+            "llm_inference",
+            started_at,
+            llm_inference="model",
+        )
 
         return {
             "messages": [AIMessage(content=raw_reply_text)],
@@ -130,13 +142,18 @@ class LLMRunner:
         }
 
     def _normalize_reply_node(self, state: LLMGraphState) -> dict[str, object]:
+        started_at = now_perf()
         graph_input = self._state_input(state)
         persona_runtime = self._get_persona_runtime(graph_input.thread_id)
         final_reply_text = persona_runtime.normalize_reply(state["raw_reply_text"])
         validation_issues = persona_runtime.validate_reply(final_reply_text)
 
-        metadata = dict(state.get("metadata", {}))
-        metadata["reply_normalization"] = "persona_guard"
+        metadata = mark_stage_done(
+            dict(state.get("metadata", {})),
+            "reply_normalization",
+            started_at,
+            reply_normalization="persona_guard",
+        )
 
         return {
             "final_reply_text": final_reply_text,
@@ -156,6 +173,7 @@ class LLMRunner:
         retrieved_context: list[str] | None = None,
         long_term_memory_context: str = NO_LONG_TERM_MEMORY_TEXT,
     ) -> LLMGraphResult:
+        started_at = now_perf()
         self._persona_runtime_cache[thread_id] = persona_runtime
 
         graph_input = LLMGraphInput(
@@ -193,6 +211,11 @@ class LLMRunner:
             },
             config={"configurable": {"thread_id": thread_id}},
         )
+        metadata = mark_stage_done(
+            dict(result.get("metadata", {})),
+            "llm_graph",
+            started_at,
+        )
 
         return LLMGraphResult(
             thread_id=graph_input.thread_id,
@@ -212,7 +235,7 @@ class LLMRunner:
             short_term_messages=self.recent_dialogue_lines(thread_id=thread_id, limit=8),
             retrieved_context=graph_input.retrieved_context,
             long_term_memory_context=graph_input.long_term_memory_context,
-            metadata=result.get("metadata", {}),
+            metadata=metadata,
         )
 
     def recent_dialogue_lines(self, thread_id: str, limit: int = 8) -> list[str]:

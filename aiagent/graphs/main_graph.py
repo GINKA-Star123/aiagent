@@ -18,6 +18,7 @@ from aiagent.live2d.payload_contract import normalize_live2d_payload
 from aiagent.graphs.metadata_utils import (
     mark_stage_done,
     mark_stage_failed,
+    mark_stage_started,
     mark_stage_skipped,
     metadata_strings,
     now_perf,
@@ -31,7 +32,7 @@ STAGE_STATE = "state_graph"
 STAGE_PLANNER = "planner_graph"
 STAGE_RAG = "rag_graph"
 STAGE_LLM = "llm_graph"
-STAGE_MEMORY_STORE = "memory_store"
+STAGE_STORE_MEMORY = "store_memory"
 STAGE_RESPONSE = "response_packet"
 
 
@@ -137,7 +138,8 @@ class MainRunner:
         history: list[str] | None = None,
         session_id: str = "",
     ) -> dict[str, Any]:
-        return self.graph.invoke(
+        started_at = now_perf()
+        result = self.graph.invoke(
             {
                 "input_event": event,
                 "persona_runtime": persona_runtime,
@@ -145,6 +147,24 @@ class MainRunner:
                 "history": history or [],
             }
         )
+
+        response_packet = result.get("response_packet")
+        if isinstance(response_packet, ResponsePacket):
+            metadata = dict(response_packet.metadata or {})
+        else:
+            metadata = dict(result.get("metadata", {}))
+
+        metadata = mark_stage_done(
+            metadata,
+            "main_graph",
+            started_at,
+        )
+        result["metadata"] = metadata
+
+        if isinstance(response_packet, ResponsePacket):
+            response_packet.metadata = metadata_strings(metadata)
+
+        return result
 
     def clear_thread(self, thread_id: str) -> None:
         self.llm_runner.clear_thread(thread_id)
@@ -158,15 +178,17 @@ class MainRunner:
         history = list(state.get("history", []))
 
         metadata = mark_stage_done(
-        {
-            "main_graph_status": "started",
-            "history_count": len(history),
-            "input_modality": event.modality,
-            "attachment_count": len(event.attachments),
-        },
-        STAGE_PREPARE,
-        started_at,
-    )
+            mark_stage_started(
+                {
+                    "history_count": len(history),
+                    "input_modality": event.modality,
+                    "attachment_count": len(event.attachments),
+                },
+                "main_graph",
+            ),
+            STAGE_PREPARE,
+            started_at,
+        )
 
         return {
             "history": history,
@@ -439,6 +461,7 @@ class MainRunner:
         }
 
     def _store_memory_node(self, state: MainGraphState) -> dict[str, object]:
+        started_at = now_perf()
         event = state["input_event"]# type: ignore
         planner_result = state["planner_result"]# type: ignore
         llm_result = state["llm_result"]# type: ignore
@@ -466,6 +489,12 @@ class MainRunner:
 
         metadata = dict(state.get("metadata", {}))
         metadata.update(result.get("metadata", {}))
+        metadata = mark_stage_done(
+            metadata,
+            STAGE_STORE_MEMORY,
+            started_at,
+            memory_write_status=str(result.get("store_result", {}).get("status", "")),
+        )
 
         return {
             "memory_write_result": result.get("store_result", {}),

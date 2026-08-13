@@ -8,15 +8,25 @@ from typing import Any
 from fastapi import APIRouter, File, Form, UploadFile
 from pydantic import BaseModel
 
+from aiagent.graphs.metadata_utils import now_perf
+from aiagent.live2d.payload_contract import normalize_live2d_payload
+from aiagent.perception.voice_call_store import VoiceRealtimeCallStore
+from aiagent.perception.voice_realtime_observability import (
+    attach_voice_tts_status,
+    mark_voice_stage_done,
+    mark_voice_stage_failed,
+    mark_voice_stage_skipped,
+    merge_voice_metadata,
+    voice_base_metadata,
+    voice_response_payload,
+)
+from aiagent.schemas.outputs import ResponsePacket
+from aiagent.schemas.voice import VoiceTurnPhase
 from apps.api.response_utils import (
     error_message_response,
     error_response,
     ok_response,
 )
-
-from aiagent.live2d.payload_contract import normalize_live2d_payload
-from aiagent.perception.voice_call_store import VoiceRealtimeCallStore
-from aiagent.schemas.voice import VoiceTurnPhase
 from apps.core.runtime_registry import get_runtime, get_runtime_error
 
 router = APIRouter()
@@ -41,48 +51,54 @@ class VoiceRealtimeEndRequest(BaseModel):
 
 @router.post("/voice/realtime/start")
 async def voice_realtime_start(req: VoiceRealtimeStartRequest):
+    started_at = now_perf()
+
     call = _CALL_STORE.start(
         user_id=req.user_id,
         username=req.username,
     )
 
-    return ok_response(
-        call_id=call.call_id,
-        status=call.status,
-        phase=call.phase,
-        turn_seconds=2.8,
-        call=call.model_dump(mode="json"),
+    metadata = mark_voice_stage_done(
+        voice_base_metadata(call),
+        "call_start",
+        started_at,
+        voice_call_started=True,
     )
+    call.update_metadata(**metadata)
+
+    payload = voice_response_payload(call)
+    payload["turn_seconds"] = 2.8
+
+    return ok_response(**payload)
 
 
 @router.post("/voice/realtime/end")
 async def voice_realtime_end(req: VoiceRealtimeEndRequest):
+    started_at = now_perf()
+
     call = _CALL_STORE.end(req.call_id)
 
-    return ok_response(
-        call_id=call.call_id,
-        status=call.status,
-        phase=call.phase,
-        call=call.model_dump(mode="json"),
+    metadata = mark_voice_stage_done(
+        dict(call.metadata),
+        "call_end",
+        started_at,
+        voice_call_ended=True,
     )
+    call.update_metadata(**metadata)
+
+    payload = voice_response_payload(call)
+    payload["metadata"] = dict(call.metadata)
+
+    return ok_response(**payload)
 
 
 @router.get("/voice/realtime/state/{call_id}")
 async def voice_realtime_state(call_id: str):
     call = _CALL_STORE.get(call_id)
     if call is None:
-        return error_message_response(
-            stage="voice_realtime_state",
-            error="call not found",
-            status_code=404,
-            extra={
-                "call_id": call_id,
-            },
-        )
+        return _call_not_found_response("voice_realtime_state", call_id)
 
-    return ok_response(
-        call=call.model_dump(mode="json"),
-    )
+    return ok_response(**voice_response_payload(call))
 
 
 @router.post("/voice/realtime/turn")
@@ -92,30 +108,21 @@ async def voice_realtime_turn(
     username: str = Form(default="guest"),
     file: UploadFile = File(...),
 ):
-    call = _CALL_STORE.get(call_id)
-    if call is None:
-        return error_message_response(
-            stage="voice_realtime_turn",
-            error="call not found or expired",
-            status_code=404,
-            extra={
-                "call_id": call_id,
-            },
-        )
+    existing_call = _CALL_STORE.get(call_id)
+    if existing_call is None:
+        return _call_not_found_response("voice_realtime_turn", call_id)
 
     call = _CALL_STORE.next_turn(call_id)
     if call is None:
-        return error_message_response(
-            stage="voice_realtime_turn",
-            error="call not found or expired",
-            status_code=404,
-            extra={
-                "call_id": call_id,
-            },
-        )
+        return _call_not_found_response("voice_realtime_turn", call_id)
+
+    turn_started_at = now_perf()
+    metadata = dict(call.metadata)
+
     try:
         runtime = get_runtime()
 
+        upload_started_at = now_perf()
         upload_dir = Path("data/cache/voice_realtime")
         upload_dir.mkdir(parents=True, exist_ok=True)
 
@@ -123,49 +130,74 @@ async def voice_realtime_turn(
         file_path = upload_dir / f"{call_id}_{call.turn_count}{suffix}"
 
         content = await file.read()
-        file_path.write_bytes(content)
-        _CALL_STORE.mark_phase(
+        await asyncio.to_thread(file_path.write_bytes, content)
+
+        metadata = mark_voice_stage_done(
+            metadata,
+            "upload",
+            upload_started_at,
+            voice_upload_filename=file.filename or "",
+            voice_upload_path=str(file_path),
+            voice_upload_bytes=len(content),
+        )
+        call = _CALL_STORE.mark_phase(
             call_id,
             VoiceTurnPhase.TRANSCRIBING,
-            upload_path=str(file_path),
-            upload_bytes=len(content),
-        )
+            **metadata,
+        ) or call
+        metadata = dict(call.metadata)
 
+        asr_started_at = now_perf()
         transcript = await asyncio.to_thread(
             runtime.transcribe_audio_file,
             str(file_path),
         )
+        transcript = (transcript or "").strip()
 
-        transcript = transcript.strip()
-        call = _CALL_STORE.mark_transcript(call_id, transcript) or call
+        metadata = mark_voice_stage_done(
+            metadata,
+            "asr",
+            asr_started_at,
+            voice_asr_text_chars=len(transcript),
+            voice_asr_empty=not bool(transcript),
+        )
+        call = _CALL_STORE.mark_transcript(
+            call_id,
+            transcript,
+            **metadata,
+        ) or call
+        metadata = dict(call.metadata)
+
         if not transcript:
-            return ok_response(
-                call_id=call_id,
-                turn_count=call.turn_count,
-                phase=call.phase,
-                call=call.model_dump(mode="json"),
-                transcript="",
-                reply="",
-                base_reply_text="",
-                emotion="neutral",
-                motion="idle",
-                expression="neutral",
-                audio_path="",
-                audio_url="",
-                audio_segments=[],
-                audio_segment_urls=[],
-                audio_segment_texts=[],
-                live2d_command_path="",
-                live2d=None,
-                metadata={
-                    "voice_realtime_empty_turn": True,
-                    "voice_realtime_call_id": call_id,
-                    "voice_realtime_turn_count": call.turn_count,
-                    "voice_realtime_phase": call.phase,
-                    "voice_realtime_turn_id": call.last_turn_id,
-                },
+            metadata = mark_voice_stage_skipped(
+                metadata,
+                "chat",
+                "empty_transcript",
             )
-        _CALL_STORE.mark_phase(call_id, VoiceTurnPhase.THINKING)
+            metadata = mark_voice_stage_skipped(
+                metadata,
+                "tts",
+                "empty_transcript",
+            )
+            metadata = mark_voice_stage_done(
+                metadata,
+                "turn",
+                turn_started_at,
+                voice_turn_empty=True,
+            )
+            call.update_metadata(**metadata)
+
+            payload = voice_response_payload(call)
+            payload.update(_empty_chat_fields())
+            payload.update(
+                {
+                    "transcript": "",
+                    "metadata": dict(call.metadata),
+                }
+            )
+            return ok_response(**payload)
+
+        chat_started_at = now_perf()
         output = await asyncio.to_thread(
             runtime.handle_chat_full,
             text=transcript,
@@ -174,45 +206,75 @@ async def voice_realtime_turn(
         )
 
         packet = output.packet
+        packet_metadata = dict(packet.metadata or {})
+
+        metadata = merge_voice_metadata(packet_metadata, metadata)
+        metadata = mark_voice_stage_done(
+            metadata,
+            "chat",
+            chat_started_at,
+            voice_output_id=output.output_id,
+        )
+        metadata = attach_voice_tts_status(metadata, packet=packet)
+
         live2d = packet.live2d or _build_live2d_payload(packet)
+
         call = _CALL_STORE.mark_output(
             call_id,
             output_id=output.output_id,
-            audio_path=packet.audio_path,
-            audio_url=packet.audio_url,
+            audio_path=packet.audio_path or "",
+            audio_url=packet.audio_url or "",
+            has_audio=bool(
+                packet.audio_path
+                or packet.audio_url
+                or packet.audio_segments
+                or packet.audio_segment_urls
+            ),
+            **metadata,
         ) or call
 
-        return ok_response(
-            call_id=call_id,
-            turn_count=call.turn_count,
-            phase=call.phase,
-            call=call.model_dump(mode="json"),
-            transcript=transcript,
-            output_id=output.output_id,
-            reply=packet.reply_text,
-            base_reply_text=packet.base_reply_text,
-            emotion=packet.emotion,
-            motion=packet.motion,
-            expression=packet.expression,
-            audio_path=packet.audio_path,
-            audio_url=packet.audio_url,
-            audio_segments=packet.audio_segments,
-            audio_segment_urls=packet.audio_segment_urls,
-            audio_segment_texts=packet.audio_segment_texts,
-            live2d_command_path=packet.live2d_command_path,
-            live2d=live2d,
-            metadata={
-                **dict(packet.metadata),
-                "voice_realtime": True,
-                "voice_realtime_call_id": call_id,
-                "voice_realtime_turn_count": call.turn_count,
-                "voice_realtime_phase": call.phase,
-                "voice_realtime_turn_id": call.last_turn_id,
-            },
+        metadata = dict(call.metadata)
+        metadata = mark_voice_stage_done(
+            metadata,
+            "turn",
+            turn_started_at,
+            voice_turn_empty=False,
+        )
+        call.update_metadata(**metadata)
+
+        payload = voice_response_payload(call)
+        payload.update(
+            {
+                "transcript": transcript,
+                "output_id": output.output_id,
+                "reply": packet.reply_text or "",
+                "base_reply_text": packet.base_reply_text or packet.reply_text or "",
+                "emotion": str(packet.emotion or "neutral"),
+                "motion": packet.motion or "idle",
+                "expression": packet.expression or "neutral",
+                "audio_path": packet.audio_path or "",
+                "audio_url": packet.audio_url or "",
+                "audio_segments": packet.audio_segments or [],
+                "audio_segment_urls": packet.audio_segment_urls or [],
+                "audio_segment_texts": packet.audio_segment_texts or [],
+                "live2d_command_path": packet.live2d_command_path or "",
+                "live2d": live2d,
+                "metadata": dict(call.metadata),
+            }
         )
 
+        return ok_response(**payload)
+
     except Exception as exc:
-        _CALL_STORE.fail(call_id, exc)
+        failed_metadata = mark_voice_stage_failed(
+            metadata,
+            "turn",
+            turn_started_at,
+            exc,
+        )
+        call = _CALL_STORE.fail(call_id, exc, **failed_metadata) or call
+        failed_metadata = dict(call.metadata)
+
         logger.exception("/voice/realtime/turn failed: %s", exc)
         return error_response(
             stage="voice_realtime_turn",
@@ -221,22 +283,19 @@ async def voice_realtime_turn(
             runtime_error=get_runtime_error(),
             extra={
                 "call_id": call_id,
+                "metadata": failed_metadata,
+                "call": call.model_dump(mode="json"),
             },
         )
 
 
 @router.post("/voice/realtime/interrupt")
 async def voice_realtime_interrupt(req: VoiceRealtimeInterruptRequest):
+    started_at = now_perf()
+
     call = _CALL_STORE.interrupt(req.call_id, req.reason)
     if call is None:
-        return error_message_response(
-            stage="voice_realtime_interrupt",
-            error="call not found or expired",
-            status_code=404,
-            extra={
-                "call_id": req.call_id,
-            },
-        )
+        return _call_not_found_response("voice_realtime_interrupt", req.call_id)
 
     try:
         runtime = get_runtime()
@@ -245,7 +304,16 @@ async def voice_realtime_interrupt(req: VoiceRealtimeInterruptRequest):
             req.reason,
         )
     except Exception as exc:
-        _CALL_STORE.fail(req.call_id, exc)
+        failed_metadata = mark_voice_stage_failed(
+            dict(call.metadata),
+            "interrupt",
+            started_at,
+            exc,
+            voice_interrupt_reason=req.reason,
+        )
+        call = _CALL_STORE.fail(req.call_id, exc, **failed_metadata) or call
+        failed_metadata = dict(call.metadata)
+
         logger.exception("/voice/realtime/interrupt failed: %s", exc)
         return error_response(
             stage="voice_realtime_interrupt",
@@ -254,21 +322,74 @@ async def voice_realtime_interrupt(req: VoiceRealtimeInterruptRequest):
             runtime_error=get_runtime_error(),
             extra={
                 "call_id": req.call_id,
+                "metadata": failed_metadata,
+                "call": call.model_dump(mode="json"),
             },
         )
 
-    call = _CALL_STORE.get(req.call_id) or call
+    metadata = mark_voice_stage_done(
+        dict(call.metadata),
+        "interrupt",
+        started_at,
+        voice_interrupt_reason=req.reason,
+    )
+    call.update_metadata(**metadata)
 
-    return ok_response(
-        call_id=req.call_id,
-        status=call.status,
-        phase=call.phase,
-        result=result,
-        call=call.model_dump(mode="json"),
+    payload = voice_response_payload(call)
+    payload.update(
+        {
+            "result": result,
+            "metadata": dict(call.metadata),
+        }
+    )
+
+    return ok_response(**payload)
+
+
+def _call_not_found_response(stage: str, call_id: str):
+    return error_message_response(
+        stage=stage,
+        error="call not found or expired",
+        status_code=404,
+        extra={
+            "call_id": call_id,
+        },
     )
 
 
-def _build_live2d_payload(packet) -> dict[str, Any]:
+def _empty_chat_fields() -> dict[str, Any]:
+    return {
+        "output_id": "",
+        "reply": "",
+        "base_reply_text": "",
+        "emotion": "neutral",
+        "motion": "idle",
+        "expression": "neutral",
+        "audio_path": "",
+        "audio_url": "",
+        "audio_segments": [],
+        "audio_segment_urls": [],
+        "audio_segment_texts": [],
+        "live2d_command_path": "",
+        "live2d": _empty_live2d_payload(),
+    }
+
+
+def _empty_live2d_payload() -> dict[str, Any]:
+    return normalize_live2d_payload(
+        {},
+        emotion="neutral",
+        expression="neutral",
+        motion="idle",
+        audio_url="",
+        background_id="room_default",
+        metadata={
+            "source": "voice_realtime_empty_turn",
+        },
+    )
+
+
+def _build_live2d_payload(packet: ResponsePacket) -> dict[str, Any]:
     return normalize_live2d_payload(
         {},
         emotion=str(packet.emotion or "neutral"),

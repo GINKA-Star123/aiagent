@@ -149,19 +149,90 @@ request failed request_id=5b5d2c38a6d249708a6cde93058c9a19 method=POST path=/cha
 | `status` | 阶段状态 |
 | `error` | 错误信息 |
 
+图编排相关的 metadata 统一建议遵循同一口径：
+
+```text
+<stage>_status
+<stage>_latency_ms
+<stage>_skip_reason
+<stage>_error
+```
+
+其中 `status` 只保留少量稳定值，例如 `started`、`done`、`skipped`、`failed`。
+
 推荐阶段名：
 
 | 阶段 | 说明 |
 | --- | --- |
+| `main_graph` | 主图总耗时与总状态 |
 | `runtime_init` | runtime 初始化 |
+| `prepare_context` | 主图上下文准备 |
 | `state_graph` | 状态分析 |
 | `planner_graph` | 回复规划 |
 | `rag_graph` | RAG 检索 |
 | `memory_graph` | 记忆检索或写入 |
 | `vision_graph` | 视觉分析 |
 | `llm_graph` | 主 LLM 回复 |
+| `store_memory` | 主图里的记忆写入编排节点 |
+| `response_packet` | 主图响应封装 |
 | `tts` | 语音合成 |
 | `live2d` | Live2D payload 生成 |
+
+## Voice Realtime Metadata
+
+`/voice/realtime/*` 在通用 `request_id` 外，还会返回语音链路专用 metadata。字段命名使用 `voice_` 前缀，避免和主聊天 Graph 的 `tts_status`、`llm_graph_status` 等字段冲突。
+
+核心字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `voice_realtime` | 是否为语音实时链路响应 |
+| `voice_realtime_call_id` | 当前通话 ID |
+| `voice_realtime_turn_id` | 当前语音回合 ID，格式为 `{call_id}:{turn_count}` |
+| `voice_realtime_turn_count` | 当前通话内的回合数 |
+| `voice_realtime_status` | call 状态：`active`、`ended`、`error` |
+| `voice_realtime_phase` | call 阶段：`idle`、`transcribing`、`thinking`、`speaking` 等 |
+
+阶段字段：
+
+| 阶段字段 | 说明 |
+| --- | --- |
+| `voice_call_start_status` | start 接口状态 |
+| `voice_call_end_status` | end 接口状态 |
+| `voice_upload_status` / `voice_upload_latency_ms` | 音频上传保存阶段 |
+| `voice_asr_status` / `voice_asr_latency_ms` | ASR 转写阶段 |
+| `voice_chat_status` / `voice_chat_latency_ms` | 主聊天回复阶段 |
+| `voice_tts_status` / `voice_tts_latency_ms` | TTS 输出阶段 |
+| `voice_turn_status` / `voice_turn_latency_ms` | 单轮语音 turn 总耗时 |
+| `voice_interrupt_status` / `voice_interrupt_latency_ms` | 打断处理阶段 |
+
+空转写约定：
+
+```json
+{
+  "phase": "empty_turn",
+  "transcript": "",
+  "reply": "",
+  "metadata": {
+    "voice_asr_empty": true,
+    "voice_turn_empty": true,
+    "voice_chat_status": "skipped",
+    "voice_chat_skip_reason": "empty_transcript",
+    "voice_tts_status": "skipped",
+    "voice_tts_skip_reason": "empty_transcript"
+  }
+}
+
+客户端处理建议：
+phase=empty_turn 时不展示助手回复气泡。
+voice_tts_status=skipped 时不进入播放状态。
+phase=interrupted 时立即停止本地音频播放，并把 UI 状态切回可继续说话。
+排障时优先查看 voice_*_status 和 voice_*_latency_ms。
+
+注意：
+
+- 主图的记忆写入编排节点使用 `store_memory_*`，`memory_graph` 内部的真实持久化步骤继续使用 `memory_store_*`。
+- 主图和子图都可以在最终返回的 `metadata` 中保留各自的 `*_status` 和 `*_latency_ms`，这样一次请求里可以同时看见“总耗时”和“分阶段耗时”。
 
 ## 相关文件
 

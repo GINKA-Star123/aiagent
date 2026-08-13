@@ -8,6 +8,7 @@ from aiagent.cognition.state_analyzer import StateAnalyzer
 from aiagent.cognition.state_normalizer import StateNormalizer
 from aiagent.cognition.state_prompt import StateInferencePromptBuilder
 from aiagent.graphs.graph_model import StateGraphInput, StateInferenceOutput,StateGraphResult
+from aiagent.graphs.metadata_utils import mark_stage_done, now_perf
 from aiagent.persona.persona_runtime import PersonaRuntime
 
 class StateGraphState(TypedDict,total=False):
@@ -43,6 +44,7 @@ class StateRunner:
         return graph.compile()
     
     def _build_prompt_node(self,state:StateGraphState) -> StateGraphState:
+        started_at = now_perf()
         graph_input = state["input"] # type: ignore
         persona_runtime = state["persona_runtime"] # type: ignore
         
@@ -53,12 +55,20 @@ class StateRunner:
             persona_runtime=persona_runtime
         )
 
+        metadata = mark_stage_done(
+            dict(state.get("metadata", {})),
+            "state_prompt",
+            started_at,
+            state_prompt="built",
+        )
+
         return {
             "prompt":prompt,
-            "metadata":{"state_prompt":"built"}
+            "metadata":metadata
         }
 
     def _analyze_state_node(self,state:StateGraphState) -> StateGraphState:
+        started_at = now_perf()
         graph_input = state["input"] # type: ignore
         prompt = state["prompt"] # type: ignore
 
@@ -67,8 +77,12 @@ class StateRunner:
             user_text=graph_input.user_text # type: ignore
         )
 
-        metadata = dict(state.get("metadata",{}))
-        metadata["state_inference"] = "model"
+        metadata = mark_stage_done(
+            dict(state.get("metadata",{})),
+            "state_inference",
+            started_at,
+            state_inference="model",
+        )
 
         return {
             "output":output,
@@ -76,9 +90,14 @@ class StateRunner:
         }    
     
     def _normalize_state_node(self,state:StateGraphState) -> StateGraphState:
+        started_at = now_perf()
         normalized = self.state_normalizer.normalize(state["output"]) #type:ignore
-        metadata = dict(state.get("metadata",{}))
-        metadata["state_normalization"] = "hybrid"
+        metadata = mark_stage_done(
+            dict(state.get("metadata",{})),
+            "state_normalization",
+            started_at,
+            state_normalization="hybrid",
+        )
         return {
             "normalized_output":normalized,
             "metadata":metadata
@@ -91,6 +110,7 @@ class StateRunner:
         persona_runtime:PersonaRuntime,
         history:list[str] |None = None
     ) ->  StateGraphResult:
+        started_at = now_perf()
         graph_input = StateGraphInput(
             user_text=user_text,
             user_name=user_name,
@@ -105,6 +125,11 @@ class StateRunner:
                 "input":graph_input,
                 "persona_runtime":persona_runtime,
             }
+        )
+        metadata = mark_stage_done(
+            dict(result.get("metadata", {})),
+            "state_graph",
+            started_at,
         )
 
         normalized = result["normalized_output"]
@@ -122,5 +147,5 @@ class StateRunner:
             persona_id=graph_input.persona_id,
             persona_name=graph_input.persona_name,
             persona_alias=graph_input.persona_alias,
-            metadata=result.get("metadata", {}),
+            metadata=metadata,
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import asyncio
 import logging
 import os
@@ -26,6 +27,12 @@ _stop_event = asyncio.Event()
 
 def _worker_id(index: int) -> str:
     return f"{socket.gethostname()}:{os.getpid()}:{index}"
+
+def _safe_int(value:Any,fallback: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return fallback
 
 
 async def _handle_knowledge_rebuild(payload: dict[str, Any]) -> dict:
@@ -64,6 +71,7 @@ async def _run_task(task: dict[str, Any], worker_id: str) -> None:
     task_id = str(task["id"])
     task_type = str(task["type"])
     payload = task.get("payload") or {}
+    started_at = time.perf_counter()
 
     await queue.start(task_id, worker_id)
 
@@ -76,15 +84,51 @@ async def _run_task(task: dict[str, Any], worker_id: str) -> None:
             raise RuntimeError(f"unsupported task type: {task_type}")
 
         await queue.finish(task_id, result)
-        logger.info("task succeeded task_id=%s type=%s", task_id, task_type)
+
+        latest = await queue.get(task_id)
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+
+        logger.info(
+            "task succeeded task_id=%s type=%s worker_id=%s attempts=%s duration_ms=%s",
+            task_id,
+            task_type,
+            worker_id,
+            _safe_int(latest.get("attempts"), 0),
+            duration_ms,
+        )
 
     except Exception as exc:
-        logger.exception("task failed task_id=%s type=%s", task_id, task_type)
-        await queue.fail_or_retry(
+        logger.exception(
+            "task failed task_id=%s type=%s worker_id=%s",
+            task_id,
+            task_type,
+            worker_id,
+        )
+
+        failure = await queue.fail_or_retry(
             task_id,
             error=f"{exc}\n{traceback.format_exc()}",
         )
 
+        if failure.retried:
+            logger.warning(
+                "task requeued task_id=%s type=%s worker_id=%s attempts=%s max_attempts=%s",
+                task_id,
+                task_type,
+                worker_id,
+                failure.attempts,
+                failure.max_attempts,
+            )
+        elif failure.dead:
+            logger.error(
+                "task moved to dead letter task_id=%s type=%s worker_id=%s attempts=%s max_attempts=%s reason=%s",
+                task_id,
+                task_type,
+                worker_id,
+                failure.attempts,
+                failure.max_attempts,
+                failure.dead_reason,
+            )
 
 async def _worker_loop(index: int) -> None:
     worker_id = _worker_id(index)

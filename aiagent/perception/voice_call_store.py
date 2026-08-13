@@ -30,6 +30,7 @@ class VoiceRealtimeCallStore:
         call = self._calls.get(call_id)
         if call is None:
             return None
+
         call.touch()
         return call
 
@@ -42,6 +43,7 @@ class VoiceRealtimeCallStore:
         call = self.get(call_id)
         if call is None:
             return None
+
         call.mark_phase(phase, **metadata)
         return call
 
@@ -57,17 +59,37 @@ class VoiceRealtimeCallStore:
         call.last_output_id = ""
         call.last_audio_path = ""
         call.last_audio_url = ""
+        call.last_interrupt_reason = ""
+
+        call.update_metadata(
+            voice_realtime_call_id=call.call_id,
+            voice_realtime_turn_id=call.last_turn_id,
+            voice_realtime_turn_count=call.turn_count,
+        )
         call.mark_phase(VoiceTurnPhase.UPLOADED)
         return call
 
-    def mark_transcript(self, call_id: str, transcript: str) -> VoiceRealtimeCall | None:
+    def mark_transcript(
+        self,
+        call_id: str,
+        transcript: str,
+        **metadata: Any,
+    ) -> VoiceRealtimeCall | None:
         call = self.get(call_id)
         if call is None:
             return None
 
-        call.last_transcript = transcript.strip()
+        normalized = transcript.strip()
+        call.last_transcript = normalized
+
+        phase = VoiceTurnPhase.THINKING if normalized else VoiceTurnPhase.EMPTY_TURN
         call.mark_phase(
-            VoiceTurnPhase.EMPTY_TURN if not call.last_transcript else VoiceTurnPhase.THINKING
+            phase,
+            **{
+                **metadata,
+                "voice_asr_text_chars": len(normalized),
+                "voice_asr_empty": not bool(normalized),
+            },
         )
         return call
 
@@ -78,6 +100,8 @@ class VoiceRealtimeCallStore:
         output_id: str,
         audio_path: str = "",
         audio_url: str = "",
+        has_audio: bool | None = None,
+        **metadata: Any,
     ) -> VoiceRealtimeCall | None:
         call = self.get(call_id)
         if call is None:
@@ -87,31 +111,63 @@ class VoiceRealtimeCallStore:
         call.last_audio_path = audio_path or ""
         call.last_audio_url = audio_url or ""
 
-        if audio_path or audio_url:
-            call.mark_phase(VoiceTurnPhase.SPEAKING)
-        else:
-            call.mark_phase(VoiceTurnPhase.COMPLETED)
+        output_has_audio = has_audio if has_audio is not None else bool(audio_path or audio_url)
+        phase = VoiceTurnPhase.SPEAKING if output_has_audio else VoiceTurnPhase.COMPLETED
 
+        call.mark_phase(
+            phase,
+            **{
+                **metadata,
+                "voice_output_id": output_id,
+                "voice_audio_path": audio_path or "",
+                "voice_audio_url": audio_url or "",
+                "voice_output_has_audio": output_has_audio,
+            },
+        )
         return call
 
-    def interrupt(self, call_id: str, reason: str) -> VoiceRealtimeCall | None:
+    def interrupt(
+        self,
+        call_id: str,
+        reason: str,
+        **metadata: Any,
+    ) -> VoiceRealtimeCall | None:
         call = self.get(call_id)
         if call is None:
             return None
 
+        interrupt_reason = reason or "voice_realtime_interrupt"
         call.interrupt_count += 1
-        call.last_interrupt_reason = reason or "voice_realtime_interrupt"
-        call.mark_phase(VoiceTurnPhase.INTERRUPTED)
+        call.last_interrupt_reason = interrupt_reason
+        call.mark_phase(
+            VoiceTurnPhase.INTERRUPTED,
+            **{
+                **metadata,
+                "voice_interrupt_reason": interrupt_reason,
+                "voice_interrupt_count": call.interrupt_count,
+            },
+        )
         return call
 
-    def fail(self, call_id: str, error: Exception | str) -> VoiceRealtimeCall | None:
+    def fail(
+        self,
+        call_id: str,
+        error: Exception | str,
+        **metadata: Any,
+    ) -> VoiceRealtimeCall | None:
         call = self.get(call_id)
         if call is None:
             return None
 
         call.status = VoiceCallStatus.ERROR
         call.last_error = str(error)
-        call.mark_phase(VoiceTurnPhase.FAILED)
+        call.mark_phase(
+            VoiceTurnPhase.FAILED,
+            **{
+                **metadata,
+                "voice_last_error": str(error),
+            },
+        )
         return call
 
     def end(self, call_id: str) -> VoiceRealtimeCall:
@@ -120,9 +176,11 @@ class VoiceRealtimeCallStore:
             call = VoiceRealtimeCall(call_id=call_id)
 
         call.status = VoiceCallStatus.ENDED
-        call.phase = VoiceTurnPhase.COMPLETED
         call.ended_at = datetime.now().isoformat(timespec="seconds")
-        call.touch()
+        call.mark_phase(
+            VoiceTurnPhase.COMPLETED,
+            voice_call_ended=True,
+        )
         return call
 
     def _cleanup_expired(self) -> None:
