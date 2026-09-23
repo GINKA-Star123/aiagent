@@ -14,6 +14,12 @@ dependencies = [
     "pyyaml>=6.0.3",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -23,5 +29,46 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["aiagent*", "apps*", "config*", "domain*", "integrations*"]
-exclude = ["data*", "tests*", "docs*", "scripts*"]
+# 只声明仓库中真实存在的包：
+# - 移除 domain*（该目录已不存在）
+# - 补上 cloud*（真实存在且被 apps/tests 依赖，历史上漏声明）
+include = ["aiagent*", "apps*", "cloud*", "config*", "integrations*"]
+exclude = ["data*", "tests*", "docs*", "scripts*", "deploy*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# 现有测试使用 pytest.mark.anyio（anyio 插件注册）与 skipif；
+# 下面登记项目自有的分层标记，便于后续用 -m 筛选。
+markers = [
+    "unit: 纯单元测试，不依赖网络与外部服务",
+    "api: FastAPI 契约测试（TestClient）",
+    "smoke: mock runtime 主链路冒烟",
+    "rag: 检索质量基线评测",
+    "integration: 需要真实外部服务，默认不参与 CI",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:trustcall.*",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+    ".venv",
+    "data",
+    "third_party",
+    "gpu_services",
+    "_tmp",
+    "apps/flutter_client",
+    "apps/desktop_qt",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",  # 行宽交给 formatter，长中文注释不强制折行
+    "E402",  # 仓库存在"先做 sys.path 处理再 import"的脚本
+]
+
+[tool.ruff.lint.per-file-ignores]
+"apps/api/routes/*" = ["B008"]

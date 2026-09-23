@@ -36,6 +36,7 @@ class LLMRunner:
         self.short_term_turn_window = short_term_turn_window
         self.checkpointer = InMemorySaver()
         self._persona_runtime_cache: dict[str, PersonaRuntime] = {}
+        self._thread_users: dict[str, str] = {}
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -172,9 +173,12 @@ class LLMRunner:
         internal_context: str = "",
         retrieved_context: list[str] | None = None,
         long_term_memory_context: str = NO_LONG_TERM_MEMORY_TEXT,
+        user_id: str = "",
     ) -> LLMGraphResult:
         started_at = now_perf()
         self._persona_runtime_cache[thread_id] = persona_runtime
+        if user_id:
+            self._thread_users[thread_id] = user_id
 
         graph_input = LLMGraphInput(
             thread_id=thread_id,
@@ -267,13 +271,27 @@ class LLMRunner:
 
     def clear_thread(self, thread_id: str) -> None:
         self._persona_runtime_cache.pop(thread_id, None)
+        self._thread_users.pop(thread_id, None)
         self.graph.update_state(
             {"configurable": {"thread_id": thread_id}},
             {"messages": [], "context": {}, "summarized_messages": []},
         )
 
+    def clear_user_threads(self, user_id: str) -> list[str]:
+        targets = [
+            thread_id
+            for thread_id, owner in self._thread_users.items()
+            if owner == user_id
+        ]
+
+        for thread_id in targets:
+            self.clear_thread(thread_id)
+
+        return targets
+
     def clear_all_threads(self) -> None:
         self._persona_runtime_cache.clear()
+        self._thread_users.clear()
         self.checkpointer = InMemorySaver()
         self.graph = self._build_graph()
 

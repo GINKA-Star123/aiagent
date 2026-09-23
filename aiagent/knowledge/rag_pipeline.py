@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from pathlib import Path
 from typing import Any
@@ -10,12 +11,23 @@ from datetime import datetime
 from langchain_core.documents import Document
 
 from aiagent.knowledge.document_loader import DocumentLoader
+from aiagent.knowledge.index_manifest import (
+    TOKENIZER_VERSION,
+    build_index_manifest,
+    evaluate_index_freshness,
+    fingerprint_knowledge_files,
+    load_index_manifest,
+    save_index_manifest,
+)
+from aiagent.knowledge.index_manifest_models import IndexFreshnessReport
 from aiagent.knowledge.reranker import SimpleReranker
 from aiagent.knowledge.retriever import HybridRetriever, RetrievedChunk
 from aiagent.knowledge.vector_store import LangChainVectorStore
 from aiagent.knowledge.rag_citations import build_rag_citations
 from aiagent.knowledge.rag_confidence import evaluate_rag_confidence
-from config.paths import KNOWLEDGE_CACHE_DIR, KNOWLEDGE_PUBLIC_DIR
+from config.paths import KNOWLEDGE_CACHE_DIR, KNOWLEDGE_INDEX_MANIFEST_NAME, KNOWLEDGE_PUBLIC_DIR
+
+logger = logging.getLogger(__name__)
 
 
 class RAGPipeline:
@@ -37,6 +49,8 @@ class RAGPipeline:
         chunk_size: int = 520,
         chunk_overlap: int = 80,
         final_top_k: int = 4,
+        manifest_path: str | Path | None = None,
+        auto_rebuild_on_stale: bool = False,
     ) -> None:
         self.loader = loader
         self.retriever = retriever
@@ -49,6 +63,10 @@ class RAGPipeline:
         self.chunk_overlap = chunk_overlap
         self.final_top_k = final_top_k
         self.documents: list[Document] = []
+
+        self.manifest_path = (Path(manifest_path) if manifest_path else self.docs_index_path.parent / KNOWLEDGE_INDEX_MANIFEST_NAME)
+        self.auto_rebuild_on_stale = bool(auto_rebuild_on_stale)
+        self._freshness_report: IndexFreshnessReport | None = None
 
         self._build_lock = threading.RLock()
         self._build_status:dict[str,Any] = {
@@ -134,15 +152,18 @@ class RAGPipeline:
         except Exception:
             pass
     
-    def _build_index_inner(self,force_rebuild:bool = False) ->dict[str,Any]:
+    def _build_index_inner(self, force_rebuild: bool = False) -> dict[str, Any]:
         # 快速路径：直接加载已缓存的 split docs 和 FAISS 向量，
         # 避免每次启动都重新 embedding 全部知识文件。
+        # 但加载完必须比对清单，标记"索引是否已过期"。
         if not force_rebuild and self.docs_index_path.exists() and self.faiss_dir.exists():
             self._load_documents()
             self.vector_store.load(self.faiss_dir)
             self.retriever.build(self.documents)
+            self._refresh_freshness()
+            self._warn_if_stale()
             return self.stats()
-        
+
         raw_docs = self.loader.load_directory(self.knowledge_dir)
         split_docs = self.loader.split_documents(
             raw_docs,
@@ -152,12 +173,16 @@ class RAGPipeline:
 
         if not split_docs:
             raise RuntimeError(f"No knowledge documents were loaded from {self.knowledge_dir}")
-     
+
         self.documents = split_docs
         self._save_documents(split_docs)
         self.vector_store.build(split_docs)
         self.vector_store.save(self.faiss_dir)
         self.retriever.build(split_docs)
+        # 构建成功后立刻写清单：记录本次构建时的 embedding 身份、
+        # chunk 策略、分词版本和每个知识文件的指纹。
+        self._write_manifest()
+        self._freshness_report = None
 
         return self.stats()
 
@@ -170,6 +195,8 @@ class RAGPipeline:
             self._load_documents()
             self.vector_store.load(self.faiss_dir)
             self.retriever.build(self.documents)
+            self._refresh_freshness()
+            self._warn_if_stale()
             return
 
         self.build_index(force_rebuild=True)
@@ -245,6 +272,8 @@ class RAGPipeline:
                 "prompt_context": self._format_debug_chunks(usable_chunks),
             }
     def stats(self) -> dict[str, Any]:
+        freshness = self.index_freshness()
+
         return {
             "knowledge_dir": str(self.knowledge_dir),
             "docs_index_path": str(self.docs_index_path),
@@ -254,7 +283,11 @@ class RAGPipeline:
             "chunk_size": self.chunk_size,
             "chunk_overlap": self.chunk_overlap,
             "final_top_k": self.final_top_k,
-            "build_status":self.build_status()
+            "index_manifest_path": str(self.manifest_path),
+            "index_tokenizer_version": TOKENIZER_VERSION,
+            "index_freshness": freshness,
+            "index_stale": bool(freshness.get("stale")),
+            "build_status": self.build_status(),
         }
 
     def _format_chunk(self, chunk: RetrievedChunk, index: int) -> str:
@@ -317,3 +350,71 @@ class RAGPipeline:
             Document(page_content=item["page_content"], metadata=item["metadata"])
             for item in data
         ]
+
+    def index_freshness(self, force_refresh: bool = False) -> dict[str, Any]:
+        """索引新鲜度报告（带缓存）。任何异常都降级成 unknown，绝不抛出。"""
+        if self._freshness_report is None or force_refresh:
+            self._freshness_report = self._evaluate_freshness()
+        return self._freshness_report.model_dump(mode="json")
+
+    def _evaluate_freshness(self) -> IndexFreshnessReport:
+        try:
+            manifest = load_index_manifest(self.manifest_path)
+            return evaluate_index_freshness(
+                manifest=manifest,
+                manifest_path=self.manifest_path,
+                knowledge_dir=self.knowledge_dir,
+                embedding=self._embedding_identity(),
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+            )
+        except Exception as exc:
+            logger.warning("Failed to evaluate knowledge index freshness: %s", exc)
+            return IndexFreshnessReport(
+                ok=False,
+                status="unknown", # type:ignore
+                stale=False,
+                reasons=["freshness_check_failed"],
+                hint=f"索引新鲜度检查失败：{exc}",
+                manifest_path=str(self.manifest_path),
+            )
+
+    def _refresh_freshness(self) -> None:
+        self._freshness_report = self._evaluate_freshness()
+
+    def _warn_if_stale(self) -> None:
+        report = self._freshness_report
+        if report is None or not report.stale:
+            return
+
+        logger.warning("Knowledge index is stale: %s", report.hint)
+        if self.auto_rebuild_on_stale:
+            # 只排队，不阻塞启动；rebuild_async 内部有 running 去重。
+            self.rebuild_async(force_rebuild=True)
+
+    def _write_manifest(self) -> None:
+        try:
+            manifest = build_index_manifest(
+                knowledge_dir=self.knowledge_dir,
+                docs_index_path=self.docs_index_path,
+                faiss_dir=self.faiss_dir,
+                embedding=self._embedding_identity(),
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+                chunk_count=len(self.documents),
+                vector_count=self.vector_store.count(),
+                tokenizer_version=TOKENIZER_VERSION,
+                files=fingerprint_knowledge_files(self.knowledge_dir),
+            )
+            save_index_manifest(self.manifest_path, manifest)
+        except Exception as exc:
+            logger.warning("Failed to write knowledge index manifest: %s", exc)
+
+    def _embedding_identity(self) -> dict[str, Any]:
+        identity_fn = getattr(self.vector_store, "identity", None)
+        if callable(identity_fn):
+            try:
+                return dict(identity_fn()) # type:ignore
+            except Exception:
+                return {}
+        return {}

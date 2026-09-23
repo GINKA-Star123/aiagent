@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 from aiagent.schemas.outputs import ResponsePacket
-
+from aiagent.graphs.metadata_utils import elapsed_ms, now_perf
 
 class NoopLive2DDispatcher:
     def dispatch(self, packet: ResponsePacket) -> ResponsePacket:
+        started_at = now_perf()
+
         packet.live2d_command_path = None
         packet.metadata["live2d"] = "mock_disabled"
+        packet.metadata["live2d_status"] = "skipped"
+        packet.metadata["live2d_skip_reason"] = "mock_disabled"
+        packet.metadata["live2d_latency_ms"] = elapsed_ms(started_at)
 
+        # 下面原有的 setdefault 逻辑完全不动
         if not isinstance(packet.live2d, dict):
             packet.live2d = {}
 

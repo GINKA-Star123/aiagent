@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable,Any
 from urllib.parse import urlparse
 
 from langchain_core.documents import Document
@@ -74,6 +74,9 @@ class LangChainVectorStore:
         embedding_dimensions: int | None = None,
     ) -> None:
         self.embedding_provider = embedding_provider.strip().lower()
+        self.embedding_model_name = embedding_model_name.strip()
+        self.embedding_model_path = embedding_model_path.strip()
+        self.embedding_dimensions = embedding_dimensions
         self.embeddings = self._build_embeddings(
             embedding_model_name=embedding_model_name,
             embedding_model_path=embedding_model_path,
@@ -112,7 +115,21 @@ class LangChainVectorStore:
             allow_dangerous_deserialization=True,
         )
 
+        index_dimension = self.index_dimension()
+        if (
+            self.embedding_dimensions
+            and index_dimension
+            and int(self.embedding_dimensions) != int(index_dimension)
+        ):
+            logger.warning(
+                "FAISS index dimension (%s) does not match configured embedding dimension (%s). "
+                "The index must be rebuilt.",
+                index_dimension,
+                self.embedding_dimensions,
+            )
+
     def similarity_search(self, query: str, k: int = 6) -> list[Document]:
+        
         if self.store is None:
             raise RuntimeError("Vector store is not loaded")
 
@@ -135,6 +152,28 @@ class LangChainVectorStore:
             return 0
 
         return self.store.index.ntotal
+
+    def index_dimension(self) -> int | None:
+        """返回磁盘上 FAISS 索引的真实向量维度；未加载时返回 None"""
+        if self.store is None:
+            return None
+
+        try:
+            return int(self.store.index.d)
+        except Exception:
+            return None
+
+    def identity(self) -> dict[str, Any]:
+        """索引身份快照，写进索引清单，用于后续"配置变了没有"的比对。"""
+
+        return {
+            "provider": self.embedding_provider,
+            "model": self.embedding_model_name,
+            "model_path": self.embedding_model_path,
+            "dimensions": self.embedding_dimensions,
+            "faiss_dimension": self.index_dimension(),
+            "vector_count": self.count(),
+        }
 
     def _build_embeddings(
         self,

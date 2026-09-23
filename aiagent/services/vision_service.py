@@ -25,6 +25,31 @@ from aiagent.graphs.graph_model import (
     VisionConfidenceLevel,
     VISION_ANALYZE_SCHEMA_VERSION,
 )
+from aiagent.vision.confidence_policy import (
+    MODEL_CONFIRMED_SOURCE,
+    RETRIEVAL_ONLY_SOURCE,
+    VisionConfidencePolicy,
+)
+from aiagent.vision.character_retriever import CharacterRetriever
+from aiagent.vision.image_store import ImageStore, StoredImage
+from aiagent.vision.vision_memory_policy import decide_memory
+from aiagent.vision.vision_payload_guard import (
+    build_channels,
+    describe_violations,
+    normalize_payload,
+)
+from aiagent.graphs.graph_model import (
+    CharacterCandidate,
+    DailySceneResult,
+    VisionAnalyzeResult,
+    VisionLive2DSuggestion,
+    VisionMemoryCandidate,
+    VisionModelPayload,
+    VisionSafetyResult,
+    VisionImageType,
+    VisionConfidenceLevel,
+    VISION_ANALYZE_SCHEMA_VERSION,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -327,32 +352,62 @@ B. 日常图片：
         user_prompt: str,
         user_id: str,
     ) -> VisionAnalyzeResult:
+        # 第一步：schema 校验与修复（永不抛异常），拿到强类型 payload。
+        payload, violations = normalize_payload(model_data)
+
         character_candidates = self._normalize_model_characters(
-        raw_items=model_data.get("recognized_characters", []),
+        payload=payload,
         retrieved_candidates=candidates,
         )
-        model_confidence = self._safe_float(model_data.get("confidence"), 0.0)
-        model_reason = str(model_data.get("confidence_reason", "")).strip()
+        model_confidence = payload.confidence
+        model_reason = payload.confidence_reason
 
-        image_type, recognized, confidence_report, low_policy = self.confidence_policy.evaluate(
-        image_type=str(model_data.get("image_type", "unknown")),
+        image_type, confirmable_candidates, confidence_report, low_policy = self.confidence_policy.evaluate(
+        image_type=payload.image_type.value,
         model_confidence=model_confidence,
         model_reason=model_reason,
         character_candidates=character_candidates,
+        has_sensitive_content=payload.safety.has_sensitive_content,
+        )
+        # 只有"模型确认过"的候选才允许进入 recognized_characters。
+        recognized = [
+            item for item in confirmable_candidates
+            if item.source != RETRIEVAL_ONLY_SOURCE
+        ][:3]
+        identity_confirmed = bool(recognized)
+
+        channels = build_channels(
+            payload=payload,
+            retrieval_candidate_count=len(candidates),
+            identity_confirmed=identity_confirmed,
         )
 
-        memory = VisionMemoryCandidate(**(model_data.get("memory") or {}))
+        # 第二步：策略闸门——视觉结果能不能进长期记忆。
+        memory_decision = decide_memory(
+            image_type=image_type,
+            identity_confirmed=identity_confirmed,
+            identity_candidate_exists=bool(character_candidates),
+            confidence_level=confidence_report.level,
+            confidence_score=confidence_report.score,
+            safety=payload.safety,
+            model_memory=payload.memory,
+            has_ocr_text=bool(payload.ocr_text),
+            people_count=payload.daily_scene.people_count,
+        )
+
+        memory = payload.memory
         if low_policy.defer_memory_hint and memory.should_consider:
             memory = VisionMemoryCandidate(
                 should_consider=False,
                 reason=f"low_confidence_deferred: {memory.reason or low_policy.reason}",
             )
+        if not memory_decision.allow:
+            memory = VisionMemoryCandidate(
+                should_consider=False,
+                reason=f"policy_denied({memory_decision.reason_code}): {memory_decision.reason}",
+            )
 
-        live2d = VisionLive2DSuggestion(**(model_data.get("live2d") or {}))
-        if low_policy.suppress_live2d_override:
-            live2d = VisionLive2DSuggestion()   
-
-        identity_confirmed = bool(recognized)
+        live2d = VisionLive2DSuggestion() if low_policy.suppress_live2d_override else payload.live2d
 
         return VisionAnalyzeResult(
             schema_version=VISION_ANALYZE_SCHEMA_VERSION,
@@ -362,15 +417,15 @@ B. 日常图片：
             height=stored.height,
             format=stored.format,
             image_type=image_type,
-            user_intent=str(model_data.get("user_intent", "unknown")).strip() or "unknown",
-            summary=str(model_data.get("summary", "")).strip(),
-            objects=[str(item).strip() for item in model_data.get("objects", []) if str(item).strip()],
-            scene=str(model_data.get("scene", "")).strip(),
-            daily_scene=DailySceneResult(**(model_data.get("daily_scene") or {})),
-            ocr_text=[str(item).strip() for item in model_data.get("ocr_text", []) if str(item).strip()],
-            mood=str(model_data.get("mood", "")).strip(),
+            user_intent=payload.user_intent or "unknown",
+            summary=payload.summary,
+            objects=payload.objects,
+            scene=payload.scene,
+            daily_scene=payload.daily_scene,
+            ocr_text=payload.ocr_text,
+            mood=payload.mood,
             character_candidates=character_candidates[:5],
-            recognized_characters=recognized[:3],
+            recognized_characters=recognized,
             identity_confirmed=identity_confirmed,
             is_confident=(
                 confidence_report.level in {
@@ -382,20 +437,33 @@ B. 日常图片：
             confidence=confidence_report.score,
             confidence_report=confidence_report,
             low_confidence_policy=low_policy,
-            safety=VisionSafetyResult(**(model_data.get("safety") or {})),
+            channels=channels,
+            schema_violations=violations,
+            memory_decision=memory_decision,
+            safety=payload.safety,
             memory=memory,
             live2d=live2d,
-            raw_model_output=str(model_data.get("_raw_model_output", "")),
-            metadata = {
+            raw_model_output=payload.raw_output,
+            metadata={
                 "vision_schema_version": VISION_ANALYZE_SCHEMA_VERSION,
                 "vision_image_type": image_type.value,
                 "vision_confidence_score": confidence_report.score,
                 "vision_confidence_level": confidence_report.level.value,
+                "vision_confidence_source": confidence_report.source,
+                "vision_schema_violation_count": len(violations),
+                "vision_schema_violation_codes": describe_violations(violations),
+                "vision_channel_ocr_status": channels.ocr.status.value,
+                "vision_channel_scene_status": channels.scene.status.value,
+                "vision_channel_character_status": channels.character.status.value,
                 "vision_low_confidence_active": low_policy.active,
                 "vision_low_confidence_avoid_identity_assertion": low_policy.avoid_identity_assertion,
                 "vision_low_confidence_defer_memory_hint": low_policy.defer_memory_hint,
                 "vision_low_confidence_suppress_live2d_override": low_policy.suppress_live2d_override,
                 "vision_identity_confirmed": identity_confirmed,
+                "vision_memory_decision_allow": memory_decision.allow,
+                "vision_memory_decision_reason_code": memory_decision.reason_code,
+                "vision_memory_decision_reason": memory_decision.reason,
+                "vision_safety_sensitive": payload.safety.has_sensitive_content,
                 "vision_confirmed_character_ids": [item.character_id for item in recognized],
                 "vision_candidate_character_ids": [item.character_id for item in character_candidates[:5]],
                 "vision_candidate_count": len(character_candidates),
@@ -405,15 +473,20 @@ B. 日常图片：
                     item.model_dump(mode="json") for item in candidates
                 ],
             },
-)
+        )
+
     def _normalize_model_characters(
         self,
-        raw_items: Any,
+        payload: VisionModelPayload,
         retrieved_candidates: list[CharacterCandidate],
     ) -> list[CharacterCandidate]:
-        if not isinstance(raw_items, list):
-            raw_items = []
+        """把模型声明的角色与图库候选合并，并标注候选来源。
 
+        来源语义（决定它能否成为"已确认身份"）：
+        - model_confirmed：模型明确列出了该 character_id；
+        - model_only：模型列出但图库里没有对应候选；
+        - retrieval_only：模型没提、只是图库检索到了 —— 永远不能当作身份确认。
+        """
         retrieved_by_id = {
             item.character_id: item
             for item in retrieved_candidates
@@ -421,45 +494,41 @@ B. 日常图片：
 
         output: list[CharacterCandidate] = []
 
-        for raw in raw_items:
-            if not isinstance(raw, dict):
-                continue
-
-            character_id = str(raw.get("character_id", "")).strip()
+        for raw in payload.characters:
+            character_id = raw.character_id.strip()
             if not character_id:
                 continue
 
             base = retrieved_by_id.get(character_id)
-
-            try:
-                model_confidence = float(raw.get("confidence", 0.0))
-            except (TypeError, ValueError):
-                model_confidence = 0.0
-
-            model_confidence = min(max(model_confidence, 0.0), 1.0)
+            model_confidence = raw.confidence
             retrieval_score = base.score if base else 0.0
 
             if base:
                 final_confidence = round(model_confidence * 0.62 + retrieval_score * 0.38, 6)
+                source = MODEL_CONFIRMED_SOURCE
             else:
                 final_confidence = round(model_confidence * 0.55, 6)
+                source = "model_only"
 
             evidence: list[str] = []
             if base:
                 evidence.extend(base.evidence)
-            evidence.extend([str(item).strip() for item in raw.get("evidence", []) if str(item).strip()])
+            evidence.extend(raw.evidence)
 
             output.append(
                 CharacterCandidate(
                     character_id=character_id,
-                    name=str(raw.get("name") or (base.name if base else character_id)).strip(),
+                    name=raw.name or (base.name if base else character_id),
                     aliases=base.aliases if base else [],
                     score=retrieval_score,
                     confidence=final_confidence,
+                    source=source,
+                    model_confidence=model_confidence,
                     evidence=evidence,
                     metadata={
                         "model_confidence": model_confidence,
                         "retrieval_score": retrieval_score,
+                        "candidate_source": source,
                     },
                 )
             )
@@ -467,7 +536,20 @@ B. 日常图片：
         if output:
             return sorted(output, key=lambda item: item.confidence, reverse=True)
 
-        return retrieved_candidates[:3]
+        # 模型没有声明任何角色：只把图库候选降级返回，明确标记 retrieval_only。
+        return [
+            item.model_copy(
+                update={
+                    "source": RETRIEVAL_ONLY_SOURCE,
+                    "model_confidence": 0.0,
+                    "metadata": {
+                        **(item.metadata or {}),
+                        "candidate_source": RETRIEVAL_ONLY_SOURCE,
+                    },
+                }
+            )
+            for item in retrieved_candidates[:3]
+        ]
 
     def _format_candidates_for_prompt(self, candidates: list[CharacterCandidate]) -> str:
         if not candidates:

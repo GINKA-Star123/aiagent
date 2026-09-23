@@ -15,6 +15,7 @@ class AgentRuntimeState(BaseModel):
     """Agent runtime state."""
     status: AgentStatus = AgentStatus.IDLE
     current_session_id: str = "default"
+    current_turn_id: str = ""
     last_input_id : str|None = None
     last_output_id : str|None = None
     error_message : str|None = None

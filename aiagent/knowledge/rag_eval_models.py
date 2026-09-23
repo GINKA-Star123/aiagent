@@ -4,7 +4,7 @@ from typing import Any,Literal
 
 from pydantic import BaseModel, Field
 
-RAGMatchMode = Literal["source","title","term","any"]
+RAGMatchMode = Literal["source", "title", "term", "any", "negative"]
 
 class RAGEvalCase(BaseModel):
     case_id: str

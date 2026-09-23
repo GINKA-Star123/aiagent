@@ -92,6 +92,7 @@ class CloudTaskQueue:
         unique_key: str | None = None,
         unique_ttl_seconds: int = 1800,
         max_attempts: int = 3,
+        request_id: str = "",
     ) -> TaskSubmitResult:
         payload = payload or {}
         task_id = uuid.uuid4().hex
@@ -125,6 +126,10 @@ class CloudTaskQueue:
                 "started_at": "",
                 "finished_at": "",
                 "updated_at": str(now),
+                # 发起方的 request_id：worker 日志会带上它，实现跨进程链路检索。
+                "request_id": request_id,
+                # 首次进入 running 的时间；重试不会覆盖，用于算"任务总时长"。
+                "first_started_at": "",
                 "worker_id": "",
                 "attempts": "0",
                 "max_attempts": str(max_attempts),
@@ -167,6 +172,8 @@ class CloudTaskQueue:
                 "started_at": None,
                 "finished_at": None,
                 "updated_at": now,
+                "request_id": request_id,
+                "first_started_at": None,
                 "worker_id": "",
                 "attempts": 0,
                 "max_attempts": max_attempts,
@@ -220,7 +227,10 @@ class CloudTaskQueue:
 
         if redis is not None:
             task = await self.get(task_id)
-            started_at = task.get("started_at" or now)
+            # 原实现写成 task.get("started_at" or now)：字符串字面量恒为真，
+            # 等于始终读 task.get("started_at")，首次启动时是空值。
+            started_at = str(task.get("started_at") or now)
+            first_started_at = str(task.get("first_started_at") or now)
 
             await redis.hincrby(self._task_key(task_id), "attempts", 1)
             await redis.hset(
@@ -228,6 +238,7 @@ class CloudTaskQueue:
                 mapping={
                     "status": "running", 
                     "started_at": started_at, 
+                    "first_started_at": first_started_at,
                     "last_attempt_started_at": now,
                     "updated_at": now, 
                     "worker_id": worker_id,
@@ -243,6 +254,7 @@ class CloudTaskQueue:
                 task["attempts"] = int(task.get("attempts", 0)) + 1
                 task["status"] = "running"
                 task["started_at"] = task.get("started_at") or now_value
+                task["first_started_at"] = task.get("first_started_at") or now_value
                 task["last_attempt_started_at"] = now_value
                 task["updated_at"] = now_value
                 task["worker_id"] = worker_id
@@ -430,7 +442,9 @@ class CloudTaskQueue:
                 task = await redis.hgetall(key)
                 if task.get("queue") != queue or task.get("status") != "running":
                     continue
-                started_at = float(task.get("started_at") or 0)
+                started_at = _as_float(
+                    task.get("last_attempt_started_at") or task.get("started_at")
+                )
                 if started_at and now - started_at > stale_seconds:
                     task_id = str(task["id"])
                     await redis.hset(key, mapping={"status": "queued", "updated_at": str(now)})
@@ -442,7 +456,9 @@ class CloudTaskQueue:
             for task_id, task in _memory_store.tasks.items():
                 if task.get("queue") != queue or task.get("status") != "running":
                     continue
-                started_at = float(task.get("started_at") or 0)
+                started_at = _as_float(
+                    task.get("last_attempt_started_at") or task.get("started_at")
+                )
                 if started_at and now - started_at > stale_seconds:
                     task["status"] = "queued"
                     task["updated_at"] = now

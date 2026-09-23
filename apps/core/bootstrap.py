@@ -39,6 +39,8 @@ from aiagent.memory.mem0_memory import Mem0LongTermMemory
 from aiagent.memory.null_memory import NullLongTermMemory
 from aiagent.memory.memory_preferences import MemoryPreferenceStore
 from aiagent.memory.memory_prompt import MemoryPromptBuilder
+from aiagent.memory.memory_write_audit import MemoryWriteAuditLog
+from aiagent.memory.memory_write_dispatcher import MemoryWriteDispatcher
 from aiagent.orchestrator.dispatcher import EventDispatcher
 from aiagent.orchestrator.event_bus import EventBus
 from aiagent.orchestrator.interrupt_manager import InterruptManager
@@ -161,6 +163,8 @@ def build_runtime() -> CoreRuntime:
             chunk_size=settings.rag_chunk_size,
             chunk_overlap=settings.rag_chunk_overlap,
             final_top_k=settings.rag_final_top_k,
+            manifest_path=settings.rag_index_manifest_path or None,
+            auto_rebuild_on_stale=settings.rag_auto_rebuild_on_stale,
         )
         rag_pipeline.build_index(force_rebuild=False)
         capabilities.mark_available(
@@ -337,11 +341,13 @@ def build_runtime() -> CoreRuntime:
         )
         capabilities.mark_available(
             "memory",
-            "Long-term memory is available.",
+            "Profile memory is available: identity/relationship memories are readable via /memory API.",
             details={
                 "vector_provider": settings.memory_vector_provider,
                 "collection": settings.memory_vector_collection,
                 "graph_enabled": settings.memory_enable_graph,
+                "layers": ["profile", "preference", "episode", "boundary", "other"],
+                "search_scope": ["profile", "long_term"],
             },
         )
     except Exception as exc:
@@ -368,12 +374,23 @@ def build_runtime() -> CoreRuntime:
         relevant_limit=settings.memory_prompt_relevant_limit,
         item_max_chars=settings.memory_prompt_item_max_chars,
     )
+
+    memory_write_dispathcer = MemoryWriteDispatcher(
+        max_pending=settings.memory_write_max_pending,
+    )
+
+    memory_write_audit = MemoryWriteAuditLog(
+        tail_limit=settings.memory_write_audit_tail_limit,
+    )
     
     memory_runner = MemoryRunner(
         memory=long_term_memory, # MemoryRunner 每轮会使用两次：回复前检索长期记忆，回复后按策略写入。 # type: ignore
         policy_service=MemoryPolicyLLMService(llm_service=llm_service),
         preference_store=memory_preferences,
         prompt_builder=memory_prompt_builder,
+        write_dispatcher=memory_write_dispathcer,
+        audit_log=memory_write_audit,
+        async_write_enabled=settings.memory_write_async_enabled,
     )
 
     main_runner = MainRunner(

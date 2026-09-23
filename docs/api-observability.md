@@ -420,3 +420,101 @@ return error_response(stage="vision_analyze", exc=exc, status_code=500)
 
 5. 结构化 JSON 日志：
    - 方便后续接入 Loki、ELK 或其他日志系统。
+
+## 语音链路与表达层耗时字段（V1.1 新增）
+
+### 语音阶段（由 `mark_voice_stage_done/skipped/failed` 产出）
+
+| 字段 | 含义 | 出现时机 |
+| --- | --- | --- |
+| `voice_upload_latency_ms` | 音频落盘耗时 | turn 成功上传后 |
+| `voice_asr_latency_ms` | ASR 转写耗时 | turn 转写完成后 |
+| `voice_chat_latency_ms` | 主图（含 LLM）耗时 | turn 生成回复后 |
+| `voice_turn_latency_ms` | 单轮总耗时 | turn 结束时 |
+| `voice_tts_latency_ms` | TTS 合成耗时（来源见 `voice_tts_latency_source`） | turn 结束后 |
+| `voice_llm_latency_ms` | LLM 节点耗时（来源见 `voice_llm_latency_source`） | turn 结束后 |
+| `voice_live2d_latency_ms` | Live2D payload 派发耗时 | turn 结束后 |
+
+### 表达层（由 `TTSDispatcher` / Live2D dispatcher 写入 packet.metadata）
+
+| 字段 | 取值 | 说明 |
+| --- | --- | --- |
+| `tts_status` | `ok` / `skipped` / `failed` | TTS 结果，失败时 `tts_error` 有效 |
+| `tts_latency_ms` | 毫秒字符串 | TTS 合成耗时 |
+| `tts_segments` | 整数字符串 | 清理后的实际段数 |
+| `tts_empty_segments_dropped` | 整数字符串 | 被丢弃的空段数量 |
+| `tts_segment_overlong_count` | 整数字符串 | 超过 `tts_max_segment_chars` 的段数（仅标注，未硬切） |
+| `live2d_status` | `ok` / `skipped` / `failed` | Live2D 派发结果 |
+| `live2d_latency_ms` | 毫秒字符串 | Live2D 派发耗时 |
+
+### 语音会话标识
+
+| 字段 | 含义 |
+| --- | --- |
+| `voice_realtime_session_id` | 等于 `call_id`；与主图写入的 `metadata["session_id"]` 一致 |
+| `voice_realtime_turn_id` | 等于 `{call_id}:{turn_count}`；与 `metadata["turn_id"]` 一致 |
+
+> 数据流：`TTSDispatcher` → `packet.metadata` → `attach_voice_*` → `VoiceRealtimeCall.metadata` → `/voice/realtime/turn` 响应 `metadata`。
+
+## 视觉可信度与记忆写入字段（V1.1 新增）
+
+### 视觉链路（`/vision/analyze`、`/vision/chat`）
+
+响应体新增：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| `result.channels.ocr/scene/character` | object | 三条链路的独立状态：`status`(ok/partial/missing/skipped)、`confidence`、`item_count`、`reason` |
+| `result.schema_violations` | array | 视觉模型输出不符合 schema 的记录：`path` / `code` / `detail`（**记录并自动修复，不报错**） |
+| `result.memory_decision` | object | 视觉结果能否进长期记忆：`allow` / `reason_code` / `reason` / `categories` |
+
+对应 metadata 键：
+
+| 键 | 含义 |
+| --- | --- |
+| `vision_schema_violation_count` / `vision_schema_violation_codes` | 违规条数与去重后的 code 列表 |
+| `vision_channel_ocr_status` / `_scene_status` / `_character_status` | 三通道状态 |
+| `vision_memory_decision_allow` / `_reason_code` / `_reason` | 记忆闸门结论 |
+| `vision_safety_sensitive` | 是否判定含敏感内容 |
+| `vision_confidence_source` | `character_identity` / `character_candidate_only` / `scene_understanding` / `unknown_image_type` |
+
+角色候选来源：`character_candidates[].source` = `model_confirmed` / `model_only` / `retrieval_only`。
+**只有非 `retrieval_only` 的候选才可能进入 `recognized_characters`**——纯图库相似度不再能确认身份。
+
+记忆闸门 `reason_code`：`confirmed_character_identity`、`scene_preference_signal`、`sensitive_content`、
+`unknown_image_type`、`unconfirmed_character_identity`、`transient_document_image`、
+`possible_real_person_identity`、`model_not_considering`、`low_confidence_scene`、`unsupported_image_type`。
+
+契约自描述：`GET /vision/schema` 返回 schema 版本、支持的图片类型、通道与全部 reason_code。
+
+### 记忆写入链路
+
+| 键 / 端点 | 含义 |
+| --- | --- |
+| `memory_write_status` / `memory_write_task_id` / `memory_write_async` | 异步写入的入队状态与任务号 |
+| `memory_store_dispatch_status` | 调度阶段标记 |
+| `GET /memory/write/status` | 队列 `pending` / `running` / `last` / `recent` |
+| `GET /memory/user/{user_id}/audit` | 写入审计：`category` / `importance` / `reason` / `source` / `created_at` |
+
+### 索引新鲜度
+
+| 键 | 含义 |
+| --- | --- |
+| `index_stale` | 索引是否过期 |
+| `index_freshness.status` | `fresh` / `stale` / `missing` / `unknown` |
+| `index_freshness.reasons[]` | 机器可读原因码（见配置文档） |
+| `index_freshness.hint` | 人话建议 |
+| `index_manifest_path` / `index_tokenizer_version` | 清单位置与分词版本 |
+
+### 任务队列的 request_id（跨进程链路）
+
+`POST /knowledge/rebuild`（云模式）与 `POST /vision/characters/rebuild` 入队时携带发起方的 `request_id`。
+
+- 任务记录新增：`request_id`、`first_started_at`
+- worker 日志：`task succeeded task_id=... worker_id=... attempts=... duration_ms=... result_keys=... [request_id=...]`
+- worker 与 API 共用 `setup_logger()`；`LOG_FORMAT=json` 时可直接用同一个 `request_id` 串联两端日志
+
+### 就绪度端点的输出差异
+
+`GET /ready` 为脱敏公共探针（`purpose=public`，无 details/action）；
+`GET /cloud/ops/readiness` 为运维详情（`purpose=ops`，需 `x-cloud-admin-token`）。详见 `docs/config-reference.md`。

@@ -40,7 +40,13 @@ class EventDispatcher:
 
     def handle_input(self, event: InputEvent) -> OutputEvent:
         session_id = self.session_manager.resolve_session_id(event)
+        turn_id = self.session_manager.resolve_turn_id(event,session_id=session_id)
+
+        event.session_id = session_id
+        event.turn_id = turn_id
+
         self.agent_state.current_session_id = session_id
+        self.agent_state.current_turn_id = turn_id
 
         accepted, reason = self.dialogue_manager.should_accept(event)
         if not accepted:
@@ -71,8 +77,9 @@ class EventDispatcher:
         packet = self.agent_core.main_runner.run(
             event=event,
             persona_runtime=persona,
-            history=self.agent_core._build_history_lines(),
+            history=self.agent_core._build_history_lines(session_id=session_id),
             session_id=session_id,
+            turn_id=turn_id,
         )
         output = OutputEvent(packet=packet)
 

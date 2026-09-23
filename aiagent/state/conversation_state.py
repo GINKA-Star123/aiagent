@@ -53,18 +53,103 @@ class ConversationState(BaseModel):
             self.last_strategy = planner_strategy
 
     
-    def recent_dialogue_pairs(self,limit:int = 4) ->list[dict]:
-        inputs = self.recent_inputs[-limit:]
-        Outputs = self.recent_outputs[-limit:]
+    def recent_dialogue_pairs(self, limit: int = 4, session_id: str = "") -> list[dict]:
+        """最近若干轮"用户输入 + 助手回复"配对。
 
-        pairs:list[dict] = []
-        pair_count = min(len(inputs),len(Outputs))
+        roadmap 5.3：
+
+        - ``session_id`` 非空时只统计该会话的轮次，避免不同会话互相污染；
+        - 优先按 ``turn_id`` 配对（当前轮尚未产生回复时会被自然跳过，
+          不会像按位置配对那样把上一轮回复错配给本轮）；
+        - 没有 ``turn_id`` 的旧数据退回按出现顺序配对，保持兼容。
+        """
+
+        inputs = [
+            event
+            for event in self.recent_inputs
+            if self._session_matches(getattr(event, "session_id", ""), session_id)
+        ]
+        outputs = [
+            event
+            for event in self.recent_outputs
+            if self._session_matches(
+                (event.packet.metadata or {}).get("session_id", ""),
+                session_id,
+            )
+        ]
+
+        replies_by_turn = self._replies_by_turn(outputs)
+        if replies_by_turn:
+            pairs = self._pairs_by_turn_id(inputs, replies_by_turn)
+            if pairs:
+                return pairs[-limit:]
+
+        return self._pairs_in_order(inputs, outputs, limit)
+
+    @staticmethod
+    def _session_matches(entry_session_id: str, session_id: str) -> bool:
+        """session_id 为空表示"不过滤"，保持旧调用方行为。"""
+
+        if not session_id:
+            return True
+
+        return str(entry_session_id or "") == session_id
+
+    @staticmethod
+    def _replies_by_turn(outputs: list[OutputEvent]) -> dict[str, str]:
+        replies: dict[str, str] = {}
+
+        for event in outputs:
+            turn_id = str((event.packet.metadata or {}).get("turn_id", "") or "")
+            if turn_id:
+                replies[turn_id] = event.packet.reply_text
+
+        return replies
+
+    @staticmethod
+    def _pairs_by_turn_id(
+        inputs: list[InputEvent],
+        replies_by_turn: dict[str, str],
+    ) -> list[dict]:
+        pairs: list[dict] = []
+
+        for event in inputs:
+            turn_id = str(getattr(event, "turn_id", "") or "")
+            reply = replies_by_turn.get(turn_id)
+            if reply is None:
+                continue
+            pairs.append(
+                {
+                    "user": event.user_name,
+                    "input": event.text,
+                    "reply": reply,
+                }
+            )
+
+        return pairs
+
+    @staticmethod
+    def _pairs_in_order(
+        inputs: list[InputEvent],
+        outputs: list[OutputEvent],
+        limit: int,
+    ) -> list[dict]:
+        """兼容旧数据：没有 turn_id 时按出现顺序配对（保留原实现语义）。"""
+
+        recent_inputs = inputs[-limit:]
+        recent_outputs = outputs[-limit:]
+        pair_count = min(len(recent_inputs), len(recent_outputs))
+
+        pairs: list[dict] = []
         for index in range(pair_count):
-            pairs.append({
-                "user":inputs[index].user_name,
-                "input":inputs[index].text,
-                "reply":Outputs[index].packet.reply_text
-            })
+            pairs.append(
+                {
+                    "user": recent_inputs[index].user_name,
+                    "input": recent_inputs[index].text,
+                    "reply": recent_outputs[index].packet.reply_text,
+                }
+            )
+
         return pairs
     
     def prompt_summary(self) ->str:

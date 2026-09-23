@@ -22,18 +22,19 @@ class AgentCore:
         self.conversation_state = conversation_state
         self.emotion_state = emotion_state
 
-    def process(self, event: InputEvent, persona: PersonaRuntime) -> ResponsePacket:
+    def process(self, event: InputEvent, persona: PersonaRuntime,session_id: str = "",) -> ResponsePacket:
         self.agent_state.status = AgentStatus.THINKING
         self.agent_state.last_input_id = event.event_id
         self.agent_state.error_message = None
 
         try:
-            history = self._build_history_lines()
+            history = self._build_history_lines(session_id=session_id)
 
             packet = self.main_runner.run(
                 event=event,
                 persona_runtime=persona,
                 history=history,
+                session_id=session_id,
             )
 
             self.emotion_state.current_emotion = packet.emotion
@@ -48,10 +49,15 @@ class AgentCore:
     def clear_runtime_context(self) -> None:
         self.main_runner.clear_all_threads()
 
-    def _build_history_lines(self) -> list[str]:
+    def _build_history_lines(self,session_id:str="") -> list[str]:
+        """把会话状态翻译成主图可用的 history 行。
+
+        ``session_id`` 非空时只取该会话的轮次,
+        避免同一用户的不同会话互相看到对方的对话。
+        """
         lines: list[str] = []
 
-        for pair in self.conversation_state.recent_dialogue_pairs(limit=4):
+        for pair in self.conversation_state.recent_dialogue_pairs(limit=4,session_id=session_id):
             user = str(pair.get("user", "")).strip()
             user_text = str(pair.get("input", "")).strip()
             reply_text = str(pair.get("reply", "")).strip()

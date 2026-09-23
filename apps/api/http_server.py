@@ -3,17 +3,25 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.staticfiles import StaticFiles
 
+from aiagent.perception.voice_call_store import (
+    VoiceCallStoreConflictError,
+    VoiceCallStoreUnavailableError,
+)
+
+from apps.api.response_utils import error_message_response
 from apps.api.exception_handlers import (
     http_exception_handler,
     validation_exception_handler,
 )
 from cloud.config import cloud_settings
 from cloud.middleware import cloud_guard_middleware
+from apps.api.http_security import build_cors_policy
 from apps.api.middleware import request_logging_middleware
 from apps.api.routes.audio import router as audio_router
 from apps.api.routes.chat import router as chat_router
@@ -44,18 +52,21 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler) 
 app.middleware("http")(cloud_guard_middleware)
 app.middleware("http")(request_logging_middleware)
 
-cors_origins = [
-    item.strip()
-    for item in settings.api_cors_origins.split(",")
-    if item.strip()
-]
+cors_policy = build_cors_policy(
+    settings.api_cors_origins,
+    app_env=settings.app_env,
+    cloud_mode=cloud_settings.cloud_mode,
+    allow_credentials=settings.api_cors_allow_credentials,
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins or ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(cors_policy.origins),
+    allow_credentials=cors_policy.allow_credentials,
+    allow_methods=list(cors_policy.allow_methods),
+    allow_headers=list(cors_policy.allow_headers),
+    expose_headers=list(cors_policy.expose_headers),
+    max_age=600,
 )
 
 if cloud_settings.storage_provider.lower() == "local":
@@ -90,9 +101,15 @@ app.include_router(session_router)
 @app.on_event("startup")
 async def on_startup() -> None:
     logger.info(
-        "API server started cloud_mode=%s storage_provider=%s",
+        (
+            "API server started "
+            "cloud_mode=%s "
+            "storage_provider=%s "
+            "cors_origin_count=%s"
+        ),
         cloud_settings.cloud_mode,
         cloud_settings.storage_provider,
+        len(cors_policy.origins),
     )
 
 
@@ -104,3 +121,34 @@ def root():
         "version": "1.0.0",
         "cloud_mode": cloud_settings.cloud_mode,
     }
+
+async def voice_call_store_unavailable_handler(
+    request: Request,
+    exc: VoiceCallStoreUnavailableError,
+) -> Response:
+    return error_message_response(
+        stage=exc.stage,
+        error=str(exc),
+        status_code=503,
+    )
+
+
+async def voice_call_store_conflict_handler(
+    request: Request,
+    exc: VoiceCallStoreConflictError,
+) -> Response:
+    return error_message_response(
+        stage=exc.stage,
+        error=str(exc),
+        status_code=409,
+    )
+
+
+app.add_exception_handler(
+    VoiceCallStoreUnavailableError,
+    voice_call_store_unavailable_handler, # type:ignore
+)
+app.add_exception_handler(
+    VoiceCallStoreConflictError,
+    voice_call_store_conflict_handler, #type:ignore
+)

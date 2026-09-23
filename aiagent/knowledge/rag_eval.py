@@ -57,12 +57,28 @@ class NullVectorStore:
 def load_cases(path: str | Path) -> list[RAGEvalCase]:
     file_path = Path(path)
     cases: list[RAGEvalCase] = []
+    seen_case_ids: dict[str, int] = {}
 
-    for line in file_path.read_text(encoding="utf-8").splitlines():
+    for line_number, line in enumerate(
+        file_path.read_text(encoding="utf-8").splitlines(),
+        start=1,
+    ):
         line = line.strip()
         if not line:
             continue
-        cases.append(RAGEvalCase.model_validate_json(line))
+
+        case = RAGEvalCase.model_validate_json(line)
+
+        # pass_rate / recall / mrr 被同一条用例重复计入，直接 fail fast。
+        if case.case_id in seen_case_ids:
+            raise ValueError(
+                "duplicate eval case_id "
+                f"'{case.case_id}' at line {line_number} "
+                f"(first seen at line {seen_case_ids[case.case_id]})"
+            )
+
+        seen_case_ids[case.case_id] = line_number
+        cases.append(case)
 
     return cases
 
@@ -89,9 +105,43 @@ def build_bm25_baseline_pipeline(
 
 
 def evaluate_case(case: RAGEvalCase, hits: list[dict[str, Any]]) -> RAGEvalCaseResult:
+    """对单条用例做判定，返回结构化结果。
+
+    判定顺序（不要调换，语义有依赖）：
+    1. 负例（match_mode == "negative"）：只关心"有没有踩 forbidden"，期望列表为空是正常的；
+    2. 普通用例的 forbidden 检查：踩了直接失败；
+    3. required_source_paths 检查：这是"必须进榜"的硬约束，语义与 expected 不同；
+    4. 逐条 hit 找第一个满足 match_mode 的命中，其 rank 即召回位置（recall@k 的分子依据）；
+    5. rank > max_rank 判失败；
+    6. expected_terms 只作为诊断信息（terms_missing），不再判失败。
+    """
     top_hits = [RAGEvalHit(**hit) for hit in hits[: case.top_k]]
 
     forbidden = _find_forbidden_hit(case, top_hits)
+
+    if case.match_mode == "negative":
+        if forbidden is None:
+            return RAGEvalCaseResult(
+                case_id=case.case_id,
+                category=case.category,
+                query=case.query,
+                passed=True,
+                reason="no_forbidden_hit",
+                top_hits=top_hits,
+                extra={"match_mode": "negative"},
+            )
+        return RAGEvalCaseResult(
+            case_id=case.case_id,
+            category=case.category,
+            query=case.query,
+            passed=False,
+            reason="forbidden_source_matched",
+            matched_source_path=forbidden.source_path,
+            matched_title=forbidden.title,
+            top_hits=top_hits,
+            extra={"match_mode": "negative"},
+        )
+
     if forbidden is not None:
         return RAGEvalCaseResult(
             case_id=case.case_id,
@@ -121,7 +171,6 @@ def evaluate_case(case: RAGEvalCase, hits: list[dict[str, Any]]) -> RAGEvalCaseR
     best_rank: int | None = None
     best_hit: RAGEvalHit | None = None
     best_terms: list[str] = []
-    best_priority = -1
 
     for index, hit in enumerate(top_hits, start=1):
         source_matched = _source_matches(case, hit)
@@ -136,22 +185,10 @@ def evaluate_case(case: RAGEvalCase, hits: list[dict[str, Any]]) -> RAGEvalCaseR
         ):
             continue
 
-        if case.expected_terms and not matched_terms:
-            continue
-
-        priority = 0
-        if source_matched:
-            priority += 3
-        if title_matched:
-            priority += 2
-        if matched_terms:
-            priority += 1
-
-        if priority > best_priority:
-            best_priority = priority
-            best_rank = index
-            best_hit = hit
-            best_terms = matched_terms
+        best_rank = index
+        best_hit = hit
+        best_terms = matched_terms
+        break
 
     if best_hit is None or best_rank is None:
         return RAGEvalCaseResult(
@@ -178,19 +215,10 @@ def evaluate_case(case: RAGEvalCase, hits: list[dict[str, Any]]) -> RAGEvalCaseR
             top_hits=top_hits,
         )
 
+
+    extra: dict[str, Any] = {"match_mode": case.match_mode}
     if case.expected_terms and not best_terms:
-        return RAGEvalCaseResult(
-            case_id=case.case_id,
-            category=case.category,
-            query=case.query,
-            passed=False,
-            reason="expected_source_matched_but_terms_missing",
-            best_rank=best_rank,
-            best_score=best_hit.score,
-            matched_source_path=best_hit.source_path,
-            matched_title=best_hit.title,
-            top_hits=top_hits,
-        )
+        extra["terms_missing"] = list(case.expected_terms)
 
     return RAGEvalCaseResult(
         case_id=case.case_id,
@@ -204,8 +232,8 @@ def evaluate_case(case: RAGEvalCase, hits: list[dict[str, Any]]) -> RAGEvalCaseR
         matched_title=best_hit.title,
         matched_terms=best_terms,
         top_hits=top_hits,
+        extra=extra,
     )
-
 
 def evaluate_cases(
     cases: list[RAGEvalCase],
@@ -427,11 +455,17 @@ def _hit_matches_mode(
         title_matched: bool,
         term_matched: bool,
 ) -> bool:
+    """判断单个命中是否满足用例声明的匹配模式。
+
+    "term" 与 "terms" 都接受：模型字面量历史上写的是 "term"，
+    而旧实现只判 "terms"，会让 "term" 悄悄退化成 "any"。
+    "negative" 不走这里（在 evaluate_case 里单独处理）。
+    """
     if match_mode == "source":
         return source_matched
     if match_mode == "title":
         return title_matched
-    if match_mode == "terms":
+    if match_mode in ("term", "terms"):
         return term_matched
     return source_matched or title_matched or term_matched
 

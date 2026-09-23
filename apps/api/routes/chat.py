@@ -23,6 +23,7 @@ class ChatRequest(BaseModel):
     user_id: str = "guest"
     username: str = "guest"
     text: str
+    session_id: str = ""
 
 
 @router.post("/chat")
@@ -47,6 +48,7 @@ async def chat(req: ChatRequest):
                 text=req.text,
                 user_id=req.user_id,
                 username=req.username,
+                session_id=req.session_id,
             )
         else:
             output = await asyncio.to_thread(
@@ -54,6 +56,7 @@ async def chat(req: ChatRequest):
                 text=req.text,
                 user_id=req.user_id,
                 username=req.username,
+                session_id=req.session_id,
             )
 
         packet = output.packet

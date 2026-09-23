@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from aiagent.memory.mem0_memory import MemoryHit
 from aiagent.memory.memory_deduper import MemoryDeduper
 from aiagent.memory.memory_safety import MemorySafetyFilter
@@ -22,12 +24,17 @@ class MemoryIntakeService:
             existing_memory_context:str,
             user_text:str,
             assistant_text:str,
+            source: str = "chat_turn",
     ) -> MemoryStorePlan:
+        created_at = self._utc_now()
+
         if decision is None:
             return MemoryStorePlan(
                 should_store=False,
                 status="skipped",
                 reason="missing_write_decision",
+                source=source,
+                created_at=created_at,
             )
         if not decision.should_store:
             return MemoryStorePlan(
@@ -36,6 +43,8 @@ class MemoryIntakeService:
                 reason=decision.reason or "policy_should_store_false",
                 category=decision.category,
                 importance=decision.importance,
+                source=source,
+                created_at=created_at,
                 metadata={
                     "policy_confidence":decision.confidence,
                 },
@@ -49,6 +58,8 @@ class MemoryIntakeService:
                 reason="empty_memory_candidate",
                 category=decision.category,
                 importance=decision.importance,
+                source=source,
+                created_at=created_at,
             )
 
         guard = self.safety_filter.evaluate(candidate)
@@ -61,6 +72,8 @@ class MemoryIntakeService:
                 importance=decision.importance,
                 memory_text=guard.redacted_text,
                 guard=guard,
+                source=source,
+                created_at=created_at,
                 metadata={
                     "policy_reason": decision.reason,
                     "policy_confidence": decision.confidence,
@@ -82,6 +95,8 @@ class MemoryIntakeService:
                 memory_text=guard.redacted_text,
                 guard=guard,
                 dedup=dedup,
+                source=source,
+                created_at=created_at,
                 metadata={
                     "policy_reason": decision.reason,
                     "policy_confidence": decision.confidence,
@@ -96,14 +111,20 @@ class MemoryIntakeService:
             memory_text=guard.redacted_text,
             guard=guard,
             dedup=dedup,
+            source=source,
+            created_at=created_at,
             metadata={
                 "policy_reason": decision.reason,
                 "policy_confidence": decision.confidence,
                 "source_facts_count": len(decision.facts),
             },
         )
+
     def _select_candidate(self,decision: MemoryWriteDecision) -> str:
         facts = [item.strip() for item in decision.facts if item.strip()]
         if facts:
             return ";".join(facts)
         return decision.memory_hint.strip()
+
+    def _utc_now(self) -> str:
+        return datetime.now(timezone.utc).isoformat()

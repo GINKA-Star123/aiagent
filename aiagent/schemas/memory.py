@@ -13,6 +13,7 @@ class MemoryCategory(StrEnum):
     HABIT = "habit"
     BOUNDARY = "boundary"
     EVENT = "event"
+    TOPIC = "topic"
     OTHER = "other"
 
 class MemoryLayer(StrEnum):
@@ -66,6 +67,8 @@ class MemoryStorePlan(BaseModel):
     memory_text: str = ""
     guard: MemoryGuardResult = Field(default_factory=MemoryGuardResult)
     dedup: MemoryDedupResult = Field(default_factory=MemoryDedupResult)
+    source: str = "chat_turn"
+    created_at: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 class MemoryRecord(BaseModel):
@@ -174,3 +177,22 @@ class MemoryPromptContext(BaseModel):
     selected_ids: list[str] = Field(default_factory=list)
     selected_layers: list[str] = Field(default_factory=list)
     compression_reason: str = ""
+
+class MemoryWriteAudit(BaseModel):
+    """一次记忆写入决策的审计记录(JSONL 落盘，可被用户查看)"""
+
+    audit_id: str = ""
+    user_id: str =""
+    agent_id: str = "yzl"
+    session_id: str = ""
+    turn_id: str = ""
+    status: str = "skipped"
+    category: MemoryCategory = MemoryCategory.OTHER
+    importance: MemoryImportance = MemoryImportance.MEDIUM
+    layer: MemoryLayer = MemoryLayer.OTHER
+    reason: str = ""
+    source: str = "chat_turn"
+    memory_text: str = ""
+    sensitivity: MemorySensitivity = MemorySensitivity.NONE
+    flags: list[str] = Field(default_factory=list)
+    created_at: str = ""

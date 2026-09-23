@@ -7,12 +7,14 @@ from datetime import datetime
 from pathlib import Path
 
 from aiagent.schemas.outputs import ResponsePacket
+from aiagent.graphs.metadata_utils import elapsed_ms, now_perf
 from aiagent.state.speaking_state import SpeakingState
 from integrations.tts.gpt_sovits_client import GPTSoVITSClient
 from integrations.tts.indextts2_client import IndexTTS2Client
 from integrations.tts.mock_tts_client import MockTTSClient
 from integrations.tts.voxcpm_client import VoxCPMClient
 
+MAX_TTS_SEGMENT_CHARS = 220
 
 class TTSDispatcher:
     def __init__(
@@ -35,8 +37,13 @@ class TTSDispatcher:
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def dispatch(self, packet: ResponsePacket) -> ResponsePacket:
+        started_at = now_perf()
+
         if not packet.should_speak:
             packet.metadata["tts"] = "skipped_should_speak_false"
+            packet.metadata["tts_status"] = "skipped"
+            packet.metadata["tts_skip_reason"] = "should_speak_false"
+            packet.metadata["tts_latency_ms"] = elapsed_ms(started_at)
             self._mark_idle()
             return packet
 
@@ -48,35 +55,98 @@ class TTSDispatcher:
 
         try:
             audio_path, audio_segments, segment_texts = self._synthesize(packet.reply_text)
+            audio_segments, segment_texts, segment_stats = self._clean_segments(
+                audio_path=audio_path,
+                audio_segments=audio_segments,
+                segment_texts=segment_texts,
+            )
+            if not audio_segments:
+                raise RuntimeError("tts provider returned no usable segments")
         except Exception as exc:
             self.logger.exception("TTS dispatch failed: %s", exc)
             packet.metadata["tts"] = "failed"
             packet.metadata["tts_error"] = str(exc)
+            packet.metadata["tts_status"] = "failed"
+            packet.metadata["tts_latency_ms"] = elapsed_ms(started_at)
             self.speaking_state.tts_status = "failed"
             self.speaking_state.tts_error = str(exc)
             self.speaking_state.pending_text = ""
             self.speaking_state.last_updated_at = self._now()
             return packet
 
-        audio_url = self._audio_url(audio_path)
+        audio_url = self._audio_url(audio_segments[0])
         segment_urls = [self._audio_url(item) for item in audio_segments]
 
-        packet.audio_path = audio_path
+        packet.audio_path = audio_segments[0]
         packet.audio_url = audio_url
         packet.audio_segments = audio_segments
         packet.audio_segment_urls = segment_urls
         packet.audio_segment_texts = segment_texts
+
         packet.metadata["tts"] = self.tts_provider
-        packet.metadata["tts_segments"] = str(len(audio_segments))
+        packet.metadata["tts_status"] = "ok"
+        packet.metadata["tts_latency_ms"] = elapsed_ms(started_at)
+        packet.metadata.update(segment_stats)
 
         self.speaking_state.current_provider = self.tts_provider
-        self.speaking_state.last_audio_path = audio_path
+        self.speaking_state.last_audio_path = audio_segments[0]
         self.speaking_state.last_audio_url = audio_url
         self.speaking_state.tts_status = "ready"
         self.speaking_state.tts_error = ""
         self.speaking_state.pending_text = ""
         self.speaking_state.last_updated_at = self._now()
         return packet
+
+    def _clean_segments(
+        self,
+        *,
+        audio_path: str,
+        audio_segments: list[str],
+        segment_texts: list[str],
+    ) -> tuple[list[str], list[str], dict[str, str]]:
+        """清理 TTS 分段：丢弃空段、标注过长段，并保证段与文本一一对应。
+
+        规则：
+
+        - 段路径为空 或 段文本为空 → 丢弃（这类"空段"在 IndexTTS2 流式返回
+          里很常见，直接给客户端会让播放器出现静音片段）；
+        - 段文本超过 ``MAX_TTS_SEGMENT_CHARS`` → 只统计数量，不在这里硬切音频；
+        - 若 provider 只返回了单个音频但没给 segments，则用 ``audio_path`` 兜底。
+        """
+
+        paths = [str(item or "").strip() for item in (audio_segments or [])]
+        texts = [str(item or "").strip() for item in (segment_texts or [])]
+
+        if not paths and audio_path:
+            paths = [str(audio_path)]
+            texts = texts or [""]
+
+        cleaned_paths: list[str] = []
+        cleaned_texts: list[str] = []
+        dropped = 0
+        overlong = 0
+
+        for index, path in enumerate(paths):
+            text = texts[index] if index < len(texts) else ""
+
+            if not path or not text:
+                dropped += 1
+                continue
+
+            if len(text) > MAX_TTS_SEGMENT_CHARS:
+                overlong += 1
+
+            cleaned_paths.append(path)
+            cleaned_texts.append(text)
+
+        stats = {
+            "tts_segments": str(len(cleaned_paths)),
+            "tts_empty_segments_dropped": str(dropped),
+            "tts_segment_overlong_count": str(overlong),
+            "tts_max_segment_chars": str(MAX_TTS_SEGMENT_CHARS),
+        }
+
+        return cleaned_paths, cleaned_texts, stats      
 
     def _synthesize(self, text: str) -> tuple[str, list[str], list[str]]:
         if self.enable_mock_tts or self.tts_provider == "mock":

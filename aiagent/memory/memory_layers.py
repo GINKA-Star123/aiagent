@@ -19,6 +19,7 @@ CATEGORY_TO_LAYER: dict[MemoryCategory, MemoryLayer] = {
     MemoryCategory.HABIT: MemoryLayer.PREFERENCE,
     MemoryCategory.GOAL: MemoryLayer.EPISODE,
     MemoryCategory.EVENT: MemoryLayer.EPISODE,
+    MemoryCategory.TOPIC: MemoryLayer.EPISODE,
     MemoryCategory.BOUNDARY: MemoryLayer.BOUNDARY,
     MemoryCategory.OTHER: MemoryLayer.OTHER,
 }

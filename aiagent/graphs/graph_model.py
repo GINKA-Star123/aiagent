@@ -6,7 +6,7 @@ from enum import StrEnum
 from pydantic import AliasChoices, BaseModel, Field
 
 NO_LONG_TERM_MEMORY_TEXT = "无长期记忆。"
-VISION_ANALYZE_SCHEMA_VERSION = "1.0"
+VISION_ANALYZE_SCHEMA_VERSION = "1.1"
 
 class StateGraphInput(BaseModel):
     user_text: str
@@ -184,6 +184,8 @@ class CharacterCandidate(BaseModel):
     aliases:list[str] = Field(default_factory=list)
     confidence:float = 0.0
     score:float = 0.0
+    source: str = ""
+    model_confidence: float = 0.0
     evidence:list[str] = Field(default_factory=list)
     metadata: dict[str,Any] = Field(default_factory=dict)
 
@@ -198,6 +200,73 @@ class DailySceneResult(BaseModel):
     time_hint : str =""
     weather_hint : str = ""
     notable_details:list[str] = Field(default_factory=list)
+
+class VisionSectionStatus(StrEnum):
+    OK = "ok"
+    PARTIAL = "partial"
+    MISSING = "missing"
+    SKIPPED = "skipped"
+
+
+class VisionSectionReport(BaseModel):
+    """单个视觉通道（OCR / 场景 / 角色）的独立状态与置信度。"""
+
+    status: VisionSectionStatus = VisionSectionStatus.MISSING
+    confidence: float = 0.0
+    item_count: int = 0
+    reason: str = ""
+
+
+class VisionChannels(BaseModel):
+    ocr: VisionSectionReport = Field(default_factory=VisionSectionReport)
+    scene: VisionSectionReport = Field(default_factory=VisionSectionReport)
+    character: VisionSectionReport = Field(default_factory=VisionSectionReport)
+
+
+class VisionSchemaViolation(BaseModel):
+    """视觉模型输出不符合 schema 的一条记录（记录并修复，不抛异常）。"""
+
+    path: str = ""
+    code: str = ""
+    detail: str = ""
+
+
+class VisionMemoryDecision(BaseModel):
+    """视觉结果能否进入长期记忆的策略结论。"""
+
+    allow: bool = False
+    reason_code: str = "not_evaluated"
+    reason: str = ""
+    categories: list[str] = Field(default_factory=list)
+
+
+class VisionModelCharacter(BaseModel):
+    """模型在 recognized_characters 中声明的角色（尚未与图库候选合并）。"""
+
+    character_id: str = ""
+    name: str = ""
+    confidence: float = 0.0
+    evidence: list[str] = Field(default_factory=list)
+
+
+class VisionModelPayload(BaseModel):
+    """经过严格校验与修复后的视觉模型输出。"""
+
+    image_type: VisionImageType = VisionImageType.UNKNOWN
+    user_intent: str = "unknown"
+    confidence: float = 0.0
+    confidence_reason: str = ""
+    summary: str = ""
+    objects: list[str] = Field(default_factory=list)
+    scene: str = ""
+    daily_scene: DailySceneResult = Field(default_factory=DailySceneResult)
+    ocr_text: list[str] = Field(default_factory=list)
+    mood: str = ""
+    characters: list[VisionModelCharacter] = Field(default_factory=list)
+    safety: VisionSafetyResult = Field(default_factory=VisionSafetyResult)
+    memory: VisionMemoryCandidate = Field(default_factory=VisionMemoryCandidate)
+    live2d: VisionLive2DSuggestion = Field(default_factory=VisionLive2DSuggestion)
+    raw_output: str = ""
 
 class VisionAnalyzeResult(BaseModel):
     schema_version: str = VISION_ANALYZE_SCHEMA_VERSION
@@ -231,7 +300,10 @@ class VisionAnalyzeResult(BaseModel):
     live2d: VisionLive2DSuggestion = Field(default_factory=VisionLive2DSuggestion)
 
     identity_confirmed: bool = False
-    is_confident: bool = False
+
+    channels: VisionChannels = Field(default_factory=VisionChannels)
+    schema_violations: list[VisionSchemaViolation] = Field(default_factory=list)
+    memory_decision: VisionMemoryDecision = Field(default_factory=VisionMemoryDecision)
 
     raw_model_output: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)

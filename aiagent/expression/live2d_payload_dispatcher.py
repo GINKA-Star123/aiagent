@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from aiagent.schemas.outputs import ResponsePacket
+from aiagent.graphs.metadata_utils import now_perf, elapsed_ms
 from aiagent.live2d.payload_contract import normalize_live2d_payload
 from integrations.live2d.file_live2d_client import FileLive2DClient
 from integrations.live2d.mock_live2d_client import MockLive2DClient
@@ -11,6 +12,7 @@ class Live2DPayloadDispatcher:
         self.client = client
 
     def dispatch(self, packet: ResponsePacket) -> ResponsePacket:
+        started_at = now_perf()
         metadata = packet.metadata or {}
 
         image_type = metadata.get("vision_image_type", "")
@@ -34,6 +36,7 @@ class Live2DPayloadDispatcher:
         character_id = str(character.get("character_id") or "yzl")
         background_id = str(scene.get("background_id") or "")
         command_path = ""
+
         if isinstance(self.client, FileLive2DClient):
             command_path = self.client.dispatch(
                 character_id=character_id,
@@ -53,8 +56,9 @@ class Live2DPayloadDispatcher:
 
         packet.live2d_command_path = command_path
         packet.metadata["live2d"] = "file_payload"
+        packet.metadata["live2d_status"] = "ok"
+        packet.metadata["live2d_latency_ms"] = elapsed_ms(started_at)
         return packet
-
 
 # Backward-compatible name for existing bootstrap/output broadcaster wiring.
 Live2DDispatcher = Live2DPayloadDispatcher

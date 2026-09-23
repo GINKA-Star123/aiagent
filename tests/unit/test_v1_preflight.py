@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys                      # ← 新增
 from pathlib import Path
 
 
@@ -14,6 +15,10 @@ def load_preflight_module():
     assert spec.loader is not None
 
     module = importlib.util.module_from_spec(spec)
+    # Python 3.12 起，dataclasses 处理"字符串注解"时会查 sys.modules[cls.__module__]。
+    # 手工 exec 的模块默认不在 sys.modules 里，必须在 exec_module 之前注册，
+    # 否则 @dataclass(frozen=True) 会抛 AttributeError: 'NoneType' object has no attribute '__dict__'。
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 

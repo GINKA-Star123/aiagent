@@ -23,6 +23,7 @@ async def multimodal_chat(
     user_id: str = Form(default="guest"),
     username: str = Form(default="guest"),
     text: str = Form(default=""),
+    session_id: str = Form(default=""),
 ):
     try:
         runtime = get_runtime()
@@ -45,7 +46,8 @@ async def multimodal_chat(
                 filename = file.filename if file is not None else "",
                 text=text,
                 user_id = user_id,
-                username = username
+                username = username,
+                session_id = session_id,
             )
 
         else:
@@ -57,7 +59,8 @@ async def multimodal_chat(
                 filename = file.filename if file is not None else "", # type: ignore
                 text=text,
                 user_id = user_id,
-                username = username
+                username = username,
+                session_id=session_id,
         )
         
         packet = output.packet

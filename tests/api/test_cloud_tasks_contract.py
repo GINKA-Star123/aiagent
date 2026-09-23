@@ -10,8 +10,8 @@ from tests.helpers.api_contract import (
 
 
 def _admin_headers(monkeypatch):
-    monkeypatch.setenv("CLOUD_ADMIN_TOKEN", "unit-token")
-    return {"x-cloud-admin-token": "unit-token"}
+    monkeypatch.setenv("CLOUD_ADMIN_TOKEN", "unit-admin-token-strong-123456")
+    return {"x-cloud-admin-token": "unit-admin-token-strong-123456"}
 
 
 def _reset_memory_store():

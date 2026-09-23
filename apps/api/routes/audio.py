@@ -8,8 +8,12 @@ from fastapi.responses import FileResponse
 router = APIRouter()
 
 AUDIO_ROOT = Path("data/cache/tts_real").resolve()
-ALLOWED_SUFFIXES = {".wav", ".mp3", ".ogg"}
-
+AUDIO_MEDIA_TYPES = {
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+}
+ALLOWED_SUFFIXES = set(AUDIO_MEDIA_TYPES)
 
 @router.get("/audio/{filename}")
 def get_audio(filename: str):
@@ -29,6 +33,6 @@ def get_audio(filename: str):
 
     return FileResponse(
         str(audio_path),
-        media_type="audio/wav",
+        media_type=AUDIO_MEDIA_TYPES.get(audio_path.suffix.lower(), "application/octet-stream"),
         filename=audio_path.name,
     )

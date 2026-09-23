@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from cloud.admin_auth import require_cloud_admin
 from cloud.config import cloud_settings
 from cloud.task_queue import CloudTaskQueue
+from apps.api.request_context import get_request_id
 from apps.core.runtime_registry import get_runtime
 
 router = APIRouter()
@@ -48,6 +49,19 @@ def knowledge_rebuild_status():
         {
             "ok": True,
             "status": runtime.get_knowledge_rebuild_status(),
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+    return Response(content=body, media_type="application/json; charset=utf-8")
+
+@router.get("/knowledge/index/freshness")
+def knowledge_index_freshness(refresh: bool = False):
+    runtime = get_runtime()
+    body = json.dumps(
+        {
+            "ok": True,
+            "freshness": runtime.get_knowledge_index_freshness(refresh=refresh),
         },
         ensure_ascii=False,
         default=str,
@@ -96,12 +110,17 @@ async def knowledge_rebuild(
     req: KnowledgeRebuildRequest,
     _: None = Depends(require_cloud_admin),
 ):
-    if cloud_settings.cloud_mode or req.async_rebuild:
+    runtime = get_runtime()
+
+    # 云模式：走分布式任务队列，避免多副本重复重建。
+    if cloud_settings.cloud_mode:
         task = await task_queue.enqueue(
             "knowledge.rebuild",
             payload={"force_rebuild": req.force_rebuild},
             unique_key="knowledge.rebuild",
             unique_ttl_seconds=3600,
+            # 把当前请求的 request_id 带进任务，便于跨进程检索日志。
+            request_id=get_request_id(),
         )
         body = {
             "ok": True,
@@ -110,8 +129,16 @@ async def knowledge_rebuild(
             "created": task.created,
             "status": task.status,
         }
+    # 本地模式 + 要求异步：走进程内后台线程，立即返回，进度看 /knowledge/rebuild/status。
+    elif req.async_rebuild:
+        body = {
+            "ok": True,
+            "mode": "async",
+            "status": runtime.rebuild_knowledge_index_async(
+                force_rebuild=req.force_rebuild,
+            ),
+        }
     else:
-        runtime = get_runtime()
         body = {
             "ok": True,
             "mode": "sync",

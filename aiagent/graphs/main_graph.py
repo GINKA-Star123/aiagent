@@ -6,13 +6,16 @@ from langgraph.graph import END, START, StateGraph
 
 from aiagent.graphs.llm_graph import LLMRunner
 from aiagent.graphs.memory_graph import MemoryRunner
+from aiagent.graphs.degradation import build_degraded_rag_result
 from aiagent.graphs.planner_graph import PlannerRunner
 from aiagent.graphs.rag_graph import RAGRunner
 from aiagent.graphs.state_graph import StateRunner
 from aiagent.graphs.vision_graph import VisionRunner
 from aiagent.persona.persona_runtime import PersonaRuntime
+from aiagent.persona.request_risk import assess_request_risk, build_safe_refusal
 from aiagent.schemas.inputs import InputAttachment, InputEvent
 from aiagent.schemas.outputs import EmotionLabel, ResponsePacket
+from aiagent.schemas.safety import RequestRiskAssessment
 from aiagent.live2d.payload_contract import normalize_live2d_payload
 
 from aiagent.graphs.metadata_utils import (
@@ -26,6 +29,7 @@ from aiagent.graphs.metadata_utils import (
 
 NO_LONG_TERM_MEMORY_TEXT = "无长期记忆。"
 STAGE_PREPARE = "prepare_context"
+STAGE_RISK = "risk_guard"
 STAGE_VISION = "vision_graph"
 STAGE_MEMORY_RETRIEVE = "memory_retrieve"
 STAGE_STATE = "state_graph"
@@ -42,9 +46,11 @@ class MainGraphState(TypedDict, total=False):
     input_event: InputEvent
     persona_runtime: PersonaRuntime
     session_id: str
+    turn_id: str
     history: list[str]
 
     effective_user_text: str
+    risk_assessment: RequestRiskAssessment
 
     vision_state: dict[str, Any]
     vision_context: str
@@ -92,9 +98,10 @@ class MainRunner:
     def _build_graph(self):
         graph = StateGraph(MainGraphState)
 
-        # 目前图是线性的。每个关注点独立成节点，方便查看 metadata，
-        # 也方便后续改成条件分支。
+        # prepare_context 之后有一个风险闸门：高风险请求不进入 Vision /
+        # Memory / Planner / RAG / LLM 任何一条链路，直接由静态模板生成回复。
         graph.add_node("prepare_context", self._prepare_context_node)
+        graph.add_node("build_refusal_packet", self._build_refusal_packet_node)
         graph.add_node("run_vision_graph", self._run_vision_graph_node)
         graph.add_node("retrieve_memory", self._retrieve_memory_node)
         graph.add_node("run_state_graph", self._run_state_graph_node)
@@ -105,7 +112,12 @@ class MainRunner:
         graph.add_node("build_response_packet", self._build_response_packet_node)
 
         graph.add_edge(START, "prepare_context")
-        graph.add_edge("prepare_context", "run_vision_graph")
+        graph.add_conditional_edges(
+            "prepare_context",
+            self._route_after_risk,
+            {"continue": "run_vision_graph", "refuse": "build_refusal_packet"},
+        )
+        graph.add_edge("build_refusal_packet", END)
         graph.add_edge("run_vision_graph", "retrieve_memory")
         graph.add_edge("retrieve_memory", "run_state_graph")
         graph.add_edge("run_state_graph", "run_planner_graph")
@@ -123,12 +135,14 @@ class MainRunner:
         persona_runtime: PersonaRuntime,
         history: list[str] | None = None,
         session_id: str = "",
+        turn_id: str = "",
     ) -> ResponsePacket:
         return self.run_debug(
             event=event,
             persona_runtime=persona_runtime,
             history=history,
             session_id=session_id,
+            turn_id=turn_id,
         )["response_packet"]
 
     def run_debug(
@@ -137,13 +151,15 @@ class MainRunner:
         persona_runtime: PersonaRuntime,
         history: list[str] | None = None,
         session_id: str = "",
+        turn_id: str = "",
     ) -> dict[str, Any]:
         started_at = now_perf()
         result = self.graph.invoke(
             {
                 "input_event": event,
                 "persona_runtime": persona_runtime,
-                "session_id": session_id or event.user_id,
+                "session_id": session_id or event.session_id or event.user_id,
+                "turn_id": turn_id or event.turn_id,
                 "history": history or [],
             }
         )
@@ -159,6 +175,14 @@ class MainRunner:
             "main_graph",
             started_at,
         )
+
+        metadata.update(
+            {
+                "session_id": session_id or event.session_id or event.user_id,
+                "turn_id": turn_id or event.turn_id or "",
+            }
+        )
+
         result["metadata"] = metadata
 
         if isinstance(response_packet, ResponsePacket):
@@ -169,6 +193,9 @@ class MainRunner:
     def clear_thread(self, thread_id: str) -> None:
         self.llm_runner.clear_thread(thread_id)
 
+    def clear_user_threads(self, user_id: str) -> list[str]:
+        return self.llm_runner.clear_user_threads(user_id)
+
     def clear_all_threads(self) -> None:
         self.llm_runner.clear_all_threads()
 
@@ -176,6 +203,9 @@ class MainRunner:
         started_at = now_perf()
         event = state["input_event"] # type: ignore
         history = list(state.get("history", []))
+
+        # 风险判定是纯函数、无 IO，放在最前面最便宜。
+        assessment = assess_request_risk(event.text)
 
         metadata = mark_stage_done(
             mark_stage_started(
@@ -190,9 +220,93 @@ class MainRunner:
             started_at,
         )
 
+        metadata = mark_stage_done(
+            metadata,
+            STAGE_RISK,
+            started_at,
+            risk_level=assessment.level.value,
+            risk_require_refusal=assessment.require_refusal,
+            risk_reason_code=assessment.reason_code,
+            risk_categories=",".join(item.value for item in assessment.categories),
+            risk_rule_ids=",".join(signal.rule_id for signal in assessment.signals),
+        )
+
         return {
             "history": history,
             "effective_user_text": event.text,
+            "risk_assessment": assessment,
+            "metadata": metadata,
+        }
+
+    def _route_after_risk(self, state: MainGraphState) -> str:
+        assessment = state.get("risk_assessment")
+        if isinstance(assessment, RequestRiskAssessment) and assessment.require_refusal:
+            return "refuse"
+        return "continue"
+
+    def _build_refusal_packet_node(self, state: MainGraphState) -> dict[str, object]:
+        """系统级拒绝：不调用 LLM，直接产出角色语气的安全回复。
+
+        跳过了 Vision / Memory / Planner / RAG / LLM / store_memory，
+        因此高风险轮次既不会被模型"顺着说下去"，也不会写进长期记忆。
+        """
+        started_at = now_perf()
+        event = state["input_event"] # type: ignore
+        persona_runtime = state.get("persona_runtime")
+
+        assessment = state.get("risk_assessment")
+        if not isinstance(assessment, RequestRiskAssessment):
+            assessment = assess_request_risk(event.text)
+
+        persona_name = str(
+            getattr(persona_runtime, "persona_name", "")
+            or getattr(persona_runtime, "name", "")
+        ).strip()
+        persona_alias = str(
+            getattr(persona_runtime, "persona_alias", "")
+            or getattr(persona_runtime, "alias", "")
+        ).strip()
+
+        refusal = build_safe_refusal(
+            assessment,
+            persona_name=persona_name,
+            persona_alias=persona_alias,
+        )
+
+        live2d = self._build_live2d_payload(
+            emotion=refusal.emotion,
+            motion=refusal.motion,
+            expression=refusal.expression,
+            audio_url="",
+        )
+
+        metadata = mark_stage_done(
+            dict(state.get("metadata", {})),
+            STAGE_RESPONSE,
+            started_at,
+            risk_refusal=True,
+            risk_level=assessment.level.value,
+            risk_categories=",".join(item.value for item in assessment.categories),
+            risk_rule_ids=",".join(signal.rule_id for signal in assessment.signals),
+            risk_reason_code=refusal.reason_code,
+            main_graph_status="refused",
+        )
+
+        packet = ResponsePacket(
+            reply_text=refusal.text,
+            base_reply_text=refusal.text,
+            emotion=EmotionLabel.CALM,
+            should_speak=True,
+            # 系统级拒绝：本轮绝不写入长期记忆
+            should_store_memory=False,
+            motion=refusal.motion,
+            expression=refusal.expression,
+            live2d=live2d,
+            metadata=metadata_strings(metadata),
+        )
+
+        return {
+            "response_packet": packet,
             "metadata": metadata,
         }
 
@@ -404,8 +518,15 @@ class MainRunner:
                 STAGE_RAG,
                 started_at,
                 exc,
+                rag_error=str(exc),
             )
-            raise
+            return {
+                "rag_result": build_degraded_rag_result(
+                    query=getattr(planner_result,"retrieval_query",""),
+                    metadata=metadata,
+                ),
+                "metadata":metadata,
+            }
         metadata.update(rag_result.metadata)
         metadata = mark_stage_done(
             metadata,
@@ -429,7 +550,7 @@ class MainRunner:
         metadata = dict(state.get("metadata", {}))
         try:
             llm_result = self.llm_runner.run(
-                thread_id=event.user_id,
+                thread_id=state.get("session_id") or event.user_id,
                 user_text=event.text,
                 user_name=event.user_name,
                 state_result=state["state_result"],# type: ignore
@@ -438,6 +559,7 @@ class MainRunner:
                 internal_context=state.get("vision_context", ""),
                 retrieved_context=list(rag_result.context),
                 long_term_memory_context=state.get("memory_prompt_context", NO_LONG_TERM_MEMORY_TEXT),
+                user_id=event.user_id,
             )
         except Exception as exc:
             metadata = mark_stage_failed(
@@ -470,37 +592,59 @@ class MainRunner:
         if state.get("vision_memory_hint"):
             memory_extra["vision_memory_hint"] = state["vision_memory_hint"]# type: ignore
 
-        result = self.memory_runner.run_after_reply(
-            user_id=event.user_id,
-            user_name=event.user_name,
-            session_id=state.get("session_id", event.user_id),
-            turn_id=event.event_id,
-            user_text=event.text,
-            assistant_text=llm_result.reply_text,
-            retrieval_query=getattr(planner_result, "retrieval_query", "") or state.get("effective_user_text") or event.text,
-            planner_should_store_memory=bool(getattr(planner_result, "should_store_memory", False)),
-            memory_prompt_context=state.get("memory_prompt_context", NO_LONG_TERM_MEMORY_TEXT),
-            metadata={
+        memory_kwargs = {
+            "user_id": event.user_id,
+            "user_name": event.user_name,
+            "session_id": state.get("session_id") or event.session_id or event.user_id,
+            # type: ignore[union-attr]
+            "turn_id": state.get("turn_id") or event.turn_id or event.event_id,
+            "user_text": event.text,
+            "assistant_text": llm_result.reply_text,
+            "retrieval_query": (
+                getattr(planner_result, "retrieval_query", "")
+                or state.get("effective_user_text")
+                or event.text
+            ),
+            "planner_should_store_memory": bool(
+                getattr(planner_result, "should_store_memory", False)
+            ),
+            "memory_prompt_context": state.get(
+                "memory_prompt_context", NO_LONG_TERM_MEMORY_TEXT
+            ),
+            "metadata": {
                 "input_source": str(event.source),
                 "persona_id": state["persona_runtime"].persona_id,# type: ignore
                 **memory_extra,
             },
-        )
+        }
 
+        # 优先走异步写入：回复已经生成，记忆写入不该再占用本轮时延。
+        async_writer = getattr(self.memory_runner, "run_after_reply_async", None)
+        if callable(async_writer):
+            result = async_writer(**memory_kwargs)
+        else:
+            result = self.memory_runner.run_after_reply(**memory_kwargs)
+
+        store_result = result.get("store_result", {}) or {} # type: ignore
         metadata = dict(state.get("metadata", {}))
-        metadata.update(result.get("metadata", {}))
+        metadata.update(result.get("metadata", {})) # type: ignore
         metadata = mark_stage_done(
             metadata,
             STAGE_STORE_MEMORY,
             started_at,
-            memory_write_status=str(result.get("store_result", {}).get("status", "")),
+            memory_write_status=str(
+                store_result.get("status", "") if isinstance(store_result, dict) else ""
+            ),
+            memory_write_task_id=str(
+                store_result.get("task_id", "") if isinstance(store_result, dict) else ""
+            ),
         )
 
         return {
-            "memory_write_result": result.get("store_result", {}),
+            "memory_write_result": store_result,
             "metadata": metadata,
         }
-
+    
     def _build_response_packet_node(self, state: MainGraphState) -> dict[str, object]:
         started_at = now_perf()
         llm_result = state["llm_result"]# type: ignore

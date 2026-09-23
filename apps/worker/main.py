@@ -13,11 +13,11 @@ from cloud.config import cloud_settings
 from cloud.redis_lock import distributed_lock
 from cloud.task_queue import CloudTaskQueue
 from apps.core.runtime_registry import get_runtime
+from aiagent.common.logger import setup_logger
 
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+# 与 API 共用同一套日志管线：RequestContextFilter 会把任务携带的 request_id
+# 注入每条日志，JSON 格式下采集系统可直接按 request_id 检索 worker 日志。
+setup_logger(level=os.getenv("LOG_LEVEL", "INFO"))
 
 logger = logging.getLogger("aiagent.worker")
 
@@ -71,6 +71,10 @@ async def _run_task(task: dict[str, Any], worker_id: str) -> None:
     task_id = str(task["id"])
     task_type = str(task["type"])
     payload = task.get("payload") or {}
+    # 任务记录里的 request_id 来自发起方 HTTP 请求，通过 extra 注入后，
+    # 一条 request_id 就能串起 API 日志与 worker 日志。
+    request_id = str(task.get("request_id") or "")
+    log_extra = {"request_id": request_id} if request_id else {}
     started_at = time.perf_counter()
 
     await queue.start(task_id, worker_id)
@@ -89,12 +93,14 @@ async def _run_task(task: dict[str, Any], worker_id: str) -> None:
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
 
         logger.info(
-            "task succeeded task_id=%s type=%s worker_id=%s attempts=%s duration_ms=%s",
+            "task succeeded task_id=%s type=%s worker_id=%s attempts=%s duration_ms=%s result_keys=%s",
             task_id,
             task_type,
             worker_id,
             _safe_int(latest.get("attempts"), 0),
             duration_ms,
+            ",".join(sorted(result.keys())) if isinstance(result, dict) else type(result).__name__,
+            extra=log_extra,
         )
 
     except Exception as exc:
@@ -103,6 +109,7 @@ async def _run_task(task: dict[str, Any], worker_id: str) -> None:
             task_id,
             task_type,
             worker_id,
+            extra=log_extra,
         )
 
         failure = await queue.fail_or_retry(
@@ -118,6 +125,7 @@ async def _run_task(task: dict[str, Any], worker_id: str) -> None:
                 worker_id,
                 failure.attempts,
                 failure.max_attempts,
+                extra=log_extra,
             )
         elif failure.dead:
             logger.error(
@@ -128,6 +136,7 @@ async def _run_task(task: dict[str, Any], worker_id: str) -> None:
                 failure.attempts,
                 failure.max_attempts,
                 failure.dead_reason,
+                extra=log_extra,
             )
 
 async def _worker_loop(index: int) -> None:

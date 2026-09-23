@@ -111,6 +111,14 @@ LIMITER_FAIL_OPEN=false
 
 生产环境中 `API_CORS_ORIGINS` 必须显式配置真实前端域名，不建议使用宽松默认值。
 
+### 日志与 HTTP 边界（V1.1 补充）
+
+| 配置项 | 默认值 | 影响范围 |
+| --- | --- | --- |
+| `LOG_FORMAT` | `text` | `text` = 本地可读；`json` = 生产 JSON Lines，采集系统可直接按 `request_id` 检索。API 与 worker 共用同一套日志管线 |
+| `API_CORS_ALLOW_CREDENTIALS` | `true` | 是否允许浏览器跨域携带 Cookie/credentials。生产若用固定域名，建议配合白名单收紧 `API_CORS_ORIGINS` |
+| `API_TRUSTED_PROXIES` | `127.0.0.1,::1` | 允许携带 `X-Forwarded-For` 的代理地址；配错会导致客户端 IP 被伪造，直接影响限流与审计 |
+
 ## 云与运维配置
 
 | 配置项 | 默认值 | 说明 | 影响范围 |
@@ -235,6 +243,31 @@ INFLIGHT_LIMIT_ENABLED=false
 - 维度变化后必须重建索引。
 - mock 主链路 smoke 不要求真实 RAG embedding 可用。
 
+### RAG 索引生命周期（V1.1 新增）
+
+| 配置项 | 默认值 | 影响范围 |
+| --- | --- | --- |
+| `RAG_AUTO_REBUILD_ON_STALE` | `false` | 检测到索引过期时是否自动后台重建。`false` 只告警并写 `index_freshness` |
+| `RAG_INDEX_MANIFEST_PATH` | 空 | 索引清单位置；空值 = `docs_index_path` 同目录的 `index_manifest.json` |
+
+索引清单记录 `embedding_provider` / `embedding_model` / `embedding_dimensions` / `faiss_dimension` /
+`chunk_size` / `chunk_overlap` / `tokenizer_version` 以及每个知识文件的 `size+mtime+sha1`。
+
+`GET /knowledge/index/freshness` 的机器可读原因码：
+
+| reason_code | 含义 | 是否必须重建 |
+| --- | --- | --- |
+| `manifest_missing` | 没有清单（首次运行或清单被删） | 建议 |
+| `embedding_dimension_changed` | embedding 维度与索引不一致 | **必须**，否则检索直接失败 |
+| `embedding_model_changed` / `embedding_provider_changed` | 换模型或换提供方 | 建议 |
+| `tokenizer_version_changed` | 分词实现升级 | 建议 |
+| `chunk_policy_changed` | `RAG_CHUNK_SIZE` / `RAG_CHUNK_OVERLAP` 变化 | 建议 |
+| `knowledge_files_added` / `_modified` / `_removed` | 知识库文件变化 | 建议 |
+
+> `tokenizer_version` 与 `HybridRetriever._searchable_text/_tokenize` 的实现绑定。
+> 改动分词或标识头构造方式时，必须同步提升 `aiagent/knowledge/index_manifest.py` 的 `TOKENIZER_VERSION`，
+> 否则旧索引不会被判定为过期。
+
 ## Vision 配置
 
 | 配置项 | 默认值 | 说明 |
@@ -336,6 +369,18 @@ V1.1 第三批后，长期记忆进入 prompt 前会经过压缩：
 - metadata 会记录 `memory_prompt_layer_counts`、`memory_prompt_selected_ids`、`memory_prompt_selected_layers`、`memory_prompt_compression_reason`。
 - 本批次不新增新的 env 开关，先用代码内默认策略收口。
 
+### 记忆写入异步化与审计（V1.1 新增）
+
+| 配置项 | 默认值 | 影响范围 |
+| --- | --- | --- |
+| `MEMORY_WRITE_ASYNC_ENABLED` | `true` | 回复生成后，记忆抽取/去重/落盘放入单线程池，回复链路不再等待 |
+| `MEMORY_WRITE_MAX_PENDING` | `16` | 后台写入队列上限；满则丢弃本次写入并记录 `memory_write_queue_full` |
+| `MEMORY_WRITE_AUDIT_TAIL_LIMIT` | `200` | 写入审计单次读取上限 |
+
+失败行为：写入异常只记日志与审计（`status=failed`），**不影响已经返回的回复**。
+观测入口：`GET /memory/write/status`、`GET /memory/user/{user_id}/audit`。
+审计落盘：`data/runtime/memory_write_audit.jsonl`（JSONL 追加写，属本地运行资产，不入仓）。
+
 ## TTS 配置
 
 | 配置项 | 默认值 | 说明 |
@@ -379,6 +424,30 @@ V1.0 建议移动端播放音频，后端保留 `ENABLE_LOCAL_AUDIO_PLAYBACK=fal
 | `VOICE_MAX_RECORD_SECONDS` | `8.0` | 最大回合录音时长 |
 | `VOICE_SILENCE_SECONDS` | `1.2` | 静音结束阈值 |
 | `VOICE_ENERGY_THRESHOLD` | `0.015` | VAD 能量阈值 |
+| `VOICE_MAX_UPLOAD_BYTES` | `2621440` | 单个语音上传体积上限（字节） |
+
+### ASR provider 选择
+
+| `ASR_PROVIDER` | 实际实现 | 必需配置 | 适用场景 |
+| --- | --- | --- | --- |
+| `mock`（默认） | `integrations/asr/mock_asr_client.py` | 无 | 本地开发、CI、主链路 smoke |
+| `api` | `integrations/asr/api_asr_client.py`（OpenAI 兼容 `/audio/transcriptions`） | `ASR_API_BASE_URL`、`ASR_API_KEY`、`ASR_MODEL` | 云端 ASR 或自建 whisper 服务 |
+| 其他值 | `integrations/asr/faster_whisper_client.py` 本地模型 | `ASR_MODEL_SIZE` / `ASR_MODEL_PATH` / `ASR_DEVICE` / `ASR_COMPUTE_TYPE` | 离线本地识别 |
+
+失败行为：ASR 不可用只影响语音输入，文本聊天与 RAG 不受影响。
+
+### 语音通话状态存储（V1.1 补充）
+
+| 配置项 | 默认值 | 影响范围 |
+| --- | --- | --- |
+| `VOICE_CALL_STORE_PROVIDER` | `auto` | `auto` = 配了 `REDIS_URL` 就用 Redis，否则用内存；`memory` 仅限单进程；`redis` 强制 Redis |
+| `VOICE_CALL_STORE_FAIL_OPEN` | `false` | Redis 故障时是否降级到本机内存。多实例生产必须 `false`，否则通话状态会分叉 |
+| `VOICE_CALL_TTL_SECONDS` | `1800` | 活跃通话状态 TTL（最小 60） |
+| `VOICE_CALL_ENDED_TTL_SECONDS` | `300` | 已结束通话状态保留时间（最小 60） |
+| `VOICE_CALL_LOCK_TTL_SECONDS` | `15` | 分布式状态写锁 TTL（最小 3） |
+| `VOICE_CALL_LOCK_WAIT_SECONDS` | `2.0` | 获取同一 call 状态锁的最长等待（最小 0.1） |
+
+Redis 不可用时的整体取舍见 `GET /cloud/ops/readiness` 的 `details.redis_failure_policy`。
 
 V1.0 语音实时接口使用标准 call 状态：
 
@@ -449,6 +518,27 @@ data/live2d/backgrounds/
 
 `/ready` 用于负载均衡和容器 healthcheck。`/cloud/ops/readiness` 用于管理员排障，包含更多部署细节，因此需要 admin token。
 
+### 两个就绪端点的输出范围（V1.1 收紧）
+
+| 端点 | 认证 | `purpose` | 内容 |
+| --- | --- | --- | --- |
+| `GET /ready` | 无 | `public` | 只有 `ok` / `status` / `checks` / `summary` / `items[{name,ok,required,summary}]` / `cloud_mode`；**不含 details 与 action** |
+| `GET /cloud/ops/readiness` | `x-cloud-admin-token` | `ops` | 额外含 `details.redis`（含错误串）、`details.gpu`（含各端点地址）、`details.risk_summary`、`details.redis_failure_policy` |
+
+V1.1 新增两个只读检查：
+
+| 检查名 | 含义 |
+| --- | --- |
+| `gpu_circuit` | 任一 GPU 熔断器处于 `open` 即判 `degraded`；`details.open_circuits` 列出具体服务 |
+| `redis_failure_policy` | 展示每个 Redis 依赖的 fail-open / fail-closed 取舍（见下表） |
+
+| Redis 依赖 | 失败策略 | 理由 |
+| --- | --- | --- |
+| `rate_limit`、`concurrency_limit` | `fail_open` | 宁可放宽限流也不能拒绝正常用户 |
+| `task_queue`、`unique_lock` | `fail_closed` | 宁可拒绝任务也不能重复执行破坏一致性 |
+| `voice_call_store` | `fallback_memory` | 可退化为单进程内存，但多实例下必须告警 |
+| `metrics_store` | `ignore` | 只影响可观测性 |
+
 ## 安全要求
 
 - 真实 `.env`、`cloud.tencent.env` 不提交。
@@ -466,3 +556,79 @@ V1.0 最终 smoke 指令见：
 V1.0 release checklist 见：
 
 - [v1-release-checklist.md](v1-release-checklist.md)
+
+## V1.1 配置模板补充
+
+### 多模态调试（图片对话）
+
+```dotenv
+VISION_PROVIDER=openai
+VISION_MODEL=gpt-4o-mini
+VISION_API_KEY_ENV=OPENAI_API_KEY
+VISION_MAX_IMAGE_BYTES=12582912
+VISION_CHARACTER_CONFIDENT_SCORE=0.78
+```
+
+验证：`POST /vision/analyze`、`GET /vision/schema`。
+`VISION_PROVIDER=mock` 时只验证角色图库召回，不做通用图片理解。
+
+### 本地语音闭环（mock ASR + mock TTS）
+
+```dotenv
+ASR_PROVIDER=mock
+ENABLE_MOCK_ASR=true
+TTS_PROVIDER=mock
+ENABLE_MOCK_TTS=true
+VOICE_CALL_STORE_PROVIDER=memory
+VOICE_CALL_STORE_FAIL_OPEN=false
+```
+
+多实例部署必须把 `VOICE_CALL_STORE_PROVIDER` 改成 `redis` 并配置 `REDIS_URL`，
+否则通话状态只存在于单个进程内。
+
+### Live2D 调试
+
+```dotenv
+LIVE2D_PROVIDER=mock
+ENABLE_LIVE2D_RUNTIME=false
+AIAGENT_LIVE2D_MODEL3=
+```
+
+验证：`GET /live2d/preview`、`GET /live2d/stats`、`scripts/test_live2d_payload.ps1`。
+
+### 云模式（腾讯云）
+
+```dotenv
+CLOUD_MODE=true
+REDIS_URL=redis://redis:6379/0
+CLOUD_ADMIN_TOKEN=<强随机 32 位以上>
+STORAGE_PROVIDER=cos
+S3_BUCKET=<bucket>
+GPU_LLM_BASE_URL=<gpu service>
+LIMITER_FAIL_OPEN=true
+VOICE_CALL_STORE_PROVIDER=redis
+RATE_LIMIT_ENABLED=true
+INFLIGHT_LIMIT_ENABLED=true
+LOG_FORMAT=json
+```
+
+### 索引过期后的重建
+
+```powershell
+# 1) 看是否过期、为什么过期
+GET /knowledge/index/freshness
+
+# 2) 非云模式：进程内后台重建，立刻返回
+POST /knowledge/rebuild  {"force_rebuild": true, "async_rebuild": true}
+GET  /knowledge/rebuild/status
+
+# 3) 云模式：进入分布式任务队列（带发起方 request_id，可在 worker 日志检索）
+POST /knowledge/rebuild  {"force_rebuild": true}
+```
+
+### 配置一致性自检
+
+```powershell
+# settings.py / cloud/config.py ↔ .env.example ↔ 本文档 三方比对
+.venv\Scripts\python.exe scripts\check_config_sync.py
+```

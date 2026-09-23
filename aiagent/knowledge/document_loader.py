@@ -11,6 +11,14 @@ from langchain_core.documents import Document
 # splitter；后者会在 API 启动时拉起较重的 ML 依赖。
 from langchain_text_splitters.character import RecursiveCharacterTextSplitter
 from langchain_text_splitters.markdown import MarkdownHeaderTextSplitter
+from aiagent.knowledge.character_aliases import (
+    CHARACTER_ALIASES,
+    CHARACTER_FILE_KEYS,
+    CHUNK_POLICY,
+    LONG_FORM_MIN_CHARS,
+    SOURCE_TRUST_LEVELS,
+    TOPIC_KEYWORDS,
+)
 
 
 class DocumentLoader:
@@ -85,23 +93,48 @@ class DocumentLoader:
 
         for doc in documents:
             source_type = str(doc.metadata.get("source_type", "plain"))
+            doc_kind = str(doc.metadata.get("doc_kind", "reference"))
+            effective_chunk_size, effective_overlap = self._chunk_params_for(
+                doc_kind=doc_kind,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
+            )
 
             if source_type == "markdown":
                 chunks = self._split_markdown_document(
                     doc=doc,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
+                    chunk_size=effective_chunk_size,
+                    chunk_overlap=effective_overlap,
                 )
             else:
                 chunks = self._split_plain_document(
                     doc=doc,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap,
+                    chunk_size=effective_chunk_size,
+                    chunk_overlap=effective_overlap,
+                )
+        
+            for chunk in chunks:
+                chunk.metadata["doc_kind"] = doc_kind
+                chunk.metadata["chunk_policy"] = (
+                    f"{doc_kind}:{effective_chunk_size}/{effective_overlap}"
                 )
 
             final_chunks.extend(chunks)
 
         return final_chunks
+
+    def _chunk_params_for(
+            self,
+            *,
+            doc_kind: str,
+            chunk_size: int,
+            chunk_overlap: int,
+    ) -> tuple[int,int]:
+
+        if chunk_size != 520 or chunk_overlap != 80:
+            return chunk_size, chunk_overlap
+
+        return CHUNK_POLICY.get(doc_kind, (chunk_size, chunk_overlap))
 
     def _load_markdown(
         self,
@@ -269,6 +302,12 @@ class DocumentLoader:
             except ValueError:
                 source_path = str(path)
 
+        inferred = self._infer_document_metadata(
+            path=path,
+            text=normalized,
+            source_path=source_path,
+        )
+        
         return Document(
             page_content=normalized,
             metadata={
@@ -278,9 +317,115 @@ class DocumentLoader:
                 "file_name": path.name,
                 "file_suffix": path.suffix.lower(),
                 "source_type": path.suffix.lower().lstrip("."),
+                **inferred,
             },
         )
 
+    def _infer_document_metadata(
+        self,
+        *,
+        path: Path,
+        text: str,
+        source_path: str,
+    ) -> dict[str, Any]:
+        """
+        产出字段：
+
+        - character：角色规范名（能识别时）
+        - aliases：该角色的全部中文别名
+        - search_aliases：别名 + 英文标识（供检索侧拼"可检索标识头"）
+        - topic：主题分类（song / setting / fan_chant / workflow / relation / general）
+        - source：知识库分区（public / official / user）
+        - trust_level：可信等级（high / medium / low）
+        - updated_at：文件修改时间（ISO 字符串）
+        - doc_kind：文档性质（profile / long_form / reference），决定 chunk 策略
+        """
+
+        file_key = path.stem.strip().lower()
+        character = CHARACTER_FILE_KEYS.get(file_key, "")
+
+        if not character:
+            character = self._match_character_by_text(text)
+
+        aliases: list[str] = []
+        search_aliases: list[str] = []
+
+        if character:
+            variants = CHARACTER_ALIASES.get(character, (character,))
+            aliases = [
+                item
+                for item in variants
+                if item and not item.isascii()
+            ]
+            search_aliases = [item for item in variants if item]
+
+        source = self._infer_source_partition(source_path)
+
+        return {
+            "character": character,
+            "aliases": aliases,
+            "search_aliases": search_aliases,
+            "topic": self._infer_topic(text=text, file_key=file_key),
+            "source": source,
+            "trust_level": SOURCE_TRUST_LEVELS.get(source, "low"),
+            "updated_at": self._file_updated_at(path),
+            "doc_kind": self._infer_doc_kind(text=text, character=character),
+        }
+
+    def _match_character_by_text(self, text: str) -> str:
+        """文件名无法识别时，用正文里的角色标识兜底判断。"""
+
+        head = text[:2000]
+
+        for canonical, variants in CHARACTER_ALIASES.items():
+            for variant in variants:
+                if variant and variant in head:
+                    return canonical
+
+        return ""
+
+    def _infer_source_partition(self, source_path: str) -> str:
+        lowered = source_path.replace("\\", "/").lower()
+
+        for part in ("official", "public", "user"):
+            if lowered.startswith(f"{part}/") or f"/{part}/" in lowered:
+                return part
+
+        return "public" if lowered.endswith(".md") or lowered.endswith(".txt") else "unknown"
+
+    def _infer_topic(self, *, text: str, file_key: str) -> str:
+        head = text[:3000]
+
+        for topic, keywords in TOPIC_KEYWORDS.items():
+            if any(keyword.lower() in head.lower() for keyword in keywords):
+                if topic == "relation":
+                    return "relation"
+                if file_key in CHARACTER_FILE_KEYS:
+                    return "profile"
+                return topic
+
+        return "profile" if file_key in CHARACTER_FILE_KEYS else "general"
+
+    def _infer_doc_kind(self, *, text: str, character: str) -> str:
+        if len(text) >= LONG_FORM_MIN_CHARS:
+            return "long_form"
+
+        if character:
+            return "profile"
+
+        return "reference"
+
+    @staticmethod
+    def _file_updated_at(path: Path) -> str:
+        try:
+            from datetime import datetime, timezone
+
+            mtime = path.stat().st_mtime
+            return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(timespec="seconds")
+        except OSError:
+            return ""
+
+    
     def _title_from_markdown_metadata(self, metadata: dict[str, Any]) -> str:
         parts = [
             str(metadata.get("h1", "")).strip(),

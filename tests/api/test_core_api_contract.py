@@ -84,3 +84,33 @@ def test_multimodal_chat_contract(api_client, test_user, tiny_png_path):
     data = assert_json_response(response)
 
     assert_chat_response_contract(data)
+
+def test_response_preserves_valid_request_id(api_client):
+    response = api_client.get(
+        "/health",
+        headers={
+            "x-request-id": "contract-request-001",
+        },
+    )
+    data = assert_json_response(response)
+
+    assert response.headers["x-request-id"] == "contract-request-001"
+    assert data["request_id"] == "contract-request-001"
+
+
+def test_response_replaces_invalid_request_id(api_client):
+    invalid_request_id = "x" * 200
+
+    response = api_client.get(
+        "/health",
+        headers={
+            "x-request-id": invalid_request_id,
+        },
+    )
+    data = assert_json_response(response)
+
+    actual_request_id = response.headers["x-request-id"]
+
+    assert actual_request_id != invalid_request_id
+    assert len(actual_request_id) == 32
+    assert data["request_id"] == actual_request_id

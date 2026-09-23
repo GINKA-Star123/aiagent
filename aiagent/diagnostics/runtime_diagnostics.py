@@ -7,6 +7,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 from aiagent.diagnostics.models import DiagnosticCheck, DiagnosticReport
+from cloud import gpu_client as gpu_client_module
+from cloud.failure_policy import describe_failure_policy
 from config.settings import settings
 
 
@@ -28,6 +30,8 @@ class RuntimeDiagnostics:
             self._check_asr_config(),
             self._check_live2d_config(),
             self._check_live2d_assets(),
+            self._check_gpu_circuit(),
+            self._check_cloud_failure_policy(),
         ]
         return DiagnosticReport.from_checks(checks)
 
@@ -693,6 +697,59 @@ class RuntimeDiagnostics:
                 "expected_yzl_model_exists": expected_yzl_model.exists(),
             },
             action="" if status == "ok" else "补充 data/live2d/characters/yzl/model/yzl.model3.json，或修改 profile.yaml 指向真实模型。",
+        )
+
+    def _check_gpu_circuit(self) -> DiagnosticCheck:
+        """把 GPU 熔断状态纳入 diagnostics，避免"服务健康但已被熔断"的盲区。"""
+        try:
+            snapshot = gpu_client_module.gpu_client.circuit_snapshot_all()
+        except Exception as exc:
+            return DiagnosticCheck(
+                name="gpu_circuit",
+                status="skipped",
+                summary="GPU circuit snapshot is unavailable.",
+                details={"error": str(exc)},
+                action="检查 cloud.gpu_client 初始化。",
+            )
+
+        open_circuits = sorted(
+            name for name, item in snapshot.items()
+            if str(item.get("state") or "") == "open"
+        )
+
+        if open_circuits:
+            return DiagnosticCheck(
+                name="gpu_circuit",
+                status="degraded",
+                summary=f"GPU circuit breakers open: {', '.join(open_circuits)}",
+                details={"open_circuits": open_circuits, "circuits": snapshot},
+                action="检查 GPU 服务可用性；熔断器会在恢复窗口后半开重试。",
+            )
+
+        return DiagnosticCheck(
+            name="gpu_circuit",
+            status="ok",
+            summary="All GPU circuit breakers are closed.",
+            details={"open_circuits": [], "circuits": snapshot},
+        )
+
+    def _check_cloud_failure_policy(self) -> DiagnosticCheck:
+        """展示 Redis 不可用时每个依赖的 fail-open / fail-closed 取舍。"""
+        policy = describe_failure_policy()
+        unsafe = [
+            item["dependency"] for item in policy
+            if item["failure_mode"] == "fallback_memory"
+        ]
+
+        return DiagnosticCheck(
+            name="cloud_failure_policy",
+            status="ok",
+            summary="Redis failure policy is declared for every dependency.",
+            details={"policy": policy, "multi_instance_unsafe": unsafe},
+            action=(
+                f"多实例部署时注意：{', '.join(unsafe)} 会退化为单进程内存。"
+                if unsafe else ""
+            ),
         )
 
     def _resolve_env_secret(self, value: str | None) -> str | None:

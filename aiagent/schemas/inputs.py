@@ -39,6 +39,8 @@ class InputEvent(BaseModel):
     text : str = ""
 
     modality : str = "text"
+    session_id: str = ""
+    turn_id: str = ""
     attachments:list[InputAttachment] = Field(default_factory=list)
     priority : EventPriority = EventPriority.NORMAL
     metadata: dict[str,str] = Field(default_factory=dict)

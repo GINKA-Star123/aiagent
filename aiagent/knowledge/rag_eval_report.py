@@ -44,7 +44,8 @@ def build_eval_report(
             "category_count": len({case.category for case in cases}),
             "match_mode_counts": dict(Counter(case.match_mode for case in cases)),
             "difficulty_counts": dict(Counter(case.difficulty for case in cases)),
-            "tag_counts": dict(Counter(case.tags for case in cases)),
+            "tag_counts": dict(Counter(tag for case in cases for tag in case.tags)
+            ),
         },
     )
 

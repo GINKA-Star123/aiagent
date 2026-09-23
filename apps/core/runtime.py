@@ -90,20 +90,34 @@ class CoreRuntime:
         event = self.source_router.route(source=source, payload=payload)
         return self.handle_input_event(event)
 
-    def handle_chat(self, text: str, user_id: str = "guest", username: str = "guest") -> str:
-        event = InputEvent(source=InputSource.CHAT, text=text, user_id=user_id, user_name=username)
+    def handle_chat(
+            self, 
+            text: str, 
+            user_id: str = "guest", 
+            username: str = "guest",
+            session_id: str = "",
+            turn_id: str = "",) -> str:
+        event = InputEvent(source=InputSource.CHAT, text=text, user_id=user_id, user_name=username, session_id=session_id, turn_id=turn_id)
         return self.handle_input_event(event).packet.reply_text
 
-    def handle_chat_full(self, text: str, user_id: str = "guest", username: str = "guest") -> OutputEvent:
-        event = InputEvent(source=InputSource.CHAT, user_id=user_id, user_name=username, text=text)
+    def handle_chat_full(
+            self, 
+            text: str, 
+            user_id: str = "guest", 
+            username: str = "guest",
+            session_id: str = "",
+            turn_id: str = "") -> OutputEvent:
+        event = InputEvent(source=InputSource.CHAT, user_id=user_id, user_name=username, text=text,session_id=session_id,turn_id=turn_id)
         return self.handle_input_event(event)
 
-    def handle_asr_text(self, audio_text: str, user_id: str = "mic", username: str = "麦克风输入") -> OutputEvent:
+    def handle_asr_text(self, audio_text: str, user_id: str = "mic", username: str = "麦克风输入",session_id:str="",turn_id:str="") -> OutputEvent:
         event = InputEvent(
             source=InputSource.ASR,
             text=audio_text,
             user_id=user_id,
             user_name=username,
+            session_id=session_id,
+            turn_id=turn_id,
             metadata={"asr_mode": "text"},
         )
         return self.handle_input_event(event)
@@ -126,6 +140,8 @@ class CoreRuntime:
         max_seconds: float = 8.0,
         silence_seconds: float = 1.2,
         interrupt_playback: bool = True,
+        session_id: str = "",
+        turn_id: str = ""
     ) -> OutputEvent:
         if self.voice_turn_manager is None:
             raise RuntimeError("Voice turn manager is not configured.")
@@ -141,6 +157,8 @@ class CoreRuntime:
             text=transcript,
             user_id=user_id,
             user_name=username,
+            session_id=session_id,
+            turn_id=turn_id,
             metadata={"asr_mode": "voice_turn"},
         )
         return self.handle_input_event(event)
@@ -152,6 +170,8 @@ class CoreRuntime:
         text: str,
         user_id: str = "guest",
         username: str = "guest",
+        session_id: str = "",
+        turn_id: str = "",
     ) -> OutputEvent:
         """保存上传图片、挂载元数据，然后进入主图流程。"""
         attachments: list[InputAttachment] = []
@@ -190,6 +210,8 @@ class CoreRuntime:
             user_name=username,
             modality=modality,
             attachments=attachments,
+            session_id=session_id,
+            turn_id=turn_id,
             metadata={
                 "input_source": "chat_multimodal",
             },
@@ -220,6 +242,19 @@ class CoreRuntime:
     
     def get_knowledge_rebuild_status(self) ->dict:
         return self.rag_pipeline.build_status()
+
+    def get_knowledge_index_freshness(self, refresh: bool = False) -> dict:
+        freshness_fn = getattr(self.rag_pipeline, "index_freshness", None)
+        if not callable(freshness_fn):
+            return {
+                "ok": False,
+                "status": "unknown",
+                "stale": False,
+                "reasons": ["unsupported_rag_pipeline"],
+                "hint": "当前 RAG 实现不支持索引新鲜度检查。",
+            }
+
+        return freshness_fn(force_refresh=refresh) # type: ignore
 
     def search_knowledge(self, query: str, top_k: int = 4) -> list[dict]:
         normalized_query = normalize_rag_query(query)
@@ -296,10 +331,21 @@ class CoreRuntime:
                 continue
             filtered_hits.append((hit, hit_layer))
 
+        profile_memories: list[dict] = []
+        if target_layer in (None, MemoryLayer.PROFILE):
+            profile_memories = [
+                record.model_dump(mode="json") if hasattr(record, "model_dump") else record
+                for record in self._select_profile_memories(
+                    user_id=user_id,
+                    query=query,
+                    limit=limit,
+                )
+            ]
+
         return {
             "query": query,
             "memory_layer": target_layer.value if target_layer else "",
-            "profile_memories": [],
+            "profile_memories": profile_memories,
             "long_term_memories": [
                 {
                     "id": hit.id,
@@ -317,21 +363,70 @@ class CoreRuntime:
         }
 
     def get_memory_stats(self, user_id: str) -> dict:
-        memories = self.long_term_memory.get_all(user_id=user_id, limit=1000)
+        records = self.long_term_memory.list_records(user_id=user_id, limit=1000)
+        profile_records = [
+            record for record in records
+            if getattr(record, "layer", None) == MemoryLayer.PROFILE
+        ]
+
+        # 按记忆类型统计，落实 roadmap"明确记忆类型"的可观测性。
+        category_counts: dict[str, int] = {}
+        for record in records:
+            category = getattr(record, "category", None)
+            key = category.value if category is not None else "other"
+            category_counts[key] = category_counts.get(key, 0) + 1
+
         return {
             "user_id": user_id,
-            "profile": {"count": 0},
-            "long_term": {"count": len(memories)},
+            "profile": {
+                "count": len(profile_records),
+                "enabled": True,
+            },
+            "long_term": {
+                "count": len(records),
+                "by_category": category_counts,
+            },
+            "write": self.get_memory_write_status(),
             "graph": self.get_memory_graph_status(),
         }
+
+    def get_memory_write_status(self) -> dict:
+        status_fn = getattr(self.memory_runner, "write_status", None)
+        if callable(status_fn): 
+            return dict(status_fn()) # type:ignore
+        return {"pending": 0, "running": False, "async_enabled": False}
+
+    def get_user_memory_audit(self, user_id: str, limit: int = 20) -> dict:
+        audit_fn = getattr(self.memory_runner, "audit_records", None)
+        if not callable(audit_fn):
+            return {"enabled": False, "count": 0, "records": []}
+        return audit_fn(user_id=user_id, limit=limit) # type:ignore
+
+    def _select_profile_memories(self, *, user_id: str, query: str, limit: int) -> list:
+        """profile 层没有向量索引，用归一化子串匹配；匹配不到就如实返回空。"""
+        records = self.long_term_memory.list_profile_memories(
+            user_id=user_id,
+            limit=max(limit, 20),
+        )
+
+        needle = "".join(str(query or "").lower().split())
+        if not needle:
+            return list(records)[:limit]
+
+        matched = [
+            record
+            for record in records
+            if needle in "".join(str(record.memory or "").lower().split())
+        ]
+        return matched[:limit]
 
     def get_memory_graph_status(self) -> dict:
         return self.long_term_memory.graph_status()
 
     def clear_user_memories(self, user_id: str) -> dict[str, str]:
         self.long_term_memory.delete_all(user_id=user_id)
-        self.agent_core.main_runner.clear_thread(user_id)
-        return {"status": "cleared", "user_id": user_id}
+        cleared_threads = self.agent_core.main_runner.clear_user_threads(user_id)
+        return {"status": "cleared", "user_id": user_id, "cleared_thread_count":str(len(cleared_threads))}
 
     def get_memory_snapshot(self, user_id: str, limit: int = 200) -> dict:
         snapshot = self.long_term_memory.get_snapshot(

@@ -44,6 +44,17 @@ class NullRAGPipeline:
     def debug_retrieve(self, query: str, top_k: int | None = None) -> list[dict[str, Any]]:
         return []
 
+    def index_freshness(self, force_refresh: bool = False) -> dict[str, Any]:
+        return {
+            "ok": False,
+            "status": "missing",
+            "stale": False,
+            "reasons": ["rag_disabled"],
+            "hint": "RAG 索引未启用。",
+            "manifest_path": "",
+            "checked_at": "",
+        }
+    
     def stats(self) -> dict[str, Any]:
         return {
             "ok": False,
@@ -52,6 +63,7 @@ class NullRAGPipeline:
             "reason": self.reason,
             "document_count": 0,
             "vector_count": 0,
+            "index_freshness": self.index_freshness()
         }
 
     def inspect(self, query: str, top_k: int = 4, min_cosine_score: float = 0.38) -> dict[str, Any]:

@@ -102,3 +102,43 @@ def test_character_low_confidence_suppresses_live2d_override_and_uses_conservati
     assert policy.use_conservative_wording is True
     assert policy.reply_instruction
     assert "保守" in policy.reply_instruction or "候选" in policy.reply_instruction
+
+def test_retrieval_only_candidate_never_confirms_identity():
+    candidate = CharacterCandidate(
+        character_id="luotianyi",
+        name="洛天依",
+        confidence=0.95,
+        score=0.95,
+        source="retrieval_only",
+        evidence=["图像向量相似度 0.950"],
+    )
+
+    image_type, confirmed, report, policy = VisionConfidencePolicy().evaluate(
+        image_type="character",
+        model_confidence=0.9,
+        model_reason="unit",
+        character_candidates=[candidate],
+    )
+
+    assert confirmed == []
+    assert report.source == "character_candidate_only"
+    assert policy.avoid_identity_assertion is True
+    assert policy.expose_candidates is True
+    assert policy.active is True
+
+
+def test_sensitive_content_forces_conservative_policy():
+    image_type, confirmed, report, policy = VisionConfidencePolicy().evaluate(
+        image_type="daily",
+        model_confidence=0.9,
+        model_reason="unit",
+        character_candidates=[],
+        has_sensitive_content=True,
+    )
+
+    assert confirmed == []
+    assert policy.active is True
+    assert policy.avoid_identity_assertion is True
+    assert policy.defer_memory_hint is True
+    assert policy.suppress_live2d_override is True
+    assert "敏感" in policy.reply_instruction

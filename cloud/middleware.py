@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import uuid
 from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
@@ -11,10 +10,22 @@ from starlette.responses import JSONResponse
 from cloud.config import cloud_settings
 from cloud.limits import ConcurrencyLimiter, RateLimiter
 
+from apps.api.http_security import (
+    build_trusted_proxy_policy,
+    resolve_client_ip,
+)
+from apps.api.middleware import normalize_request_id
+from apps.api.request_context import get_request_id
+from config.settings import settings
+
 logger = logging.getLogger("aiagent.cloud.middleware")
 
 _rate_limiter = RateLimiter(prefix=cloud_settings.redis_prefix)
 _concurrency_limiter = ConcurrencyLimiter(prefix=cloud_settings.redis_prefix)
+
+_trusted_proxy_policy = build_trusted_proxy_policy(
+    settings.api_trusted_proxies,
+)
 
 _BYPASS_PATHS = {
     "/",
@@ -61,22 +72,42 @@ def _inflight_limit_for_bucket(bucket: str) -> int | None:
 
 
 def _client_identity(request: Request) -> str:
-    user_id = request.headers.get("x-user-id")
-    if user_id:
-        return f"user:{user_id[:128]}"
+    """
+    生成限流身份。
 
-    authorization = request.headers.get("authorization")
+    优先使用 Authorization 的不可逆 Hash。
+    未认证请求使用安全解析后的客户端 IP。
+
+    不再信任 X-User-ID，因为普通客户端可以任意伪造该 Header，
+    通过不断修改 user id 绕过限流。
+    """
+
+    authorization = request.headers.get(
+        "authorization"
+    )
+
     if authorization:
-        digest = hashlib.sha256(authorization.encode("utf-8")).hexdigest()[:24]
+        digest = hashlib.sha256(
+            authorization.encode("utf-8")
+        ).hexdigest()[:24]
+
         return f"auth:{digest}"
 
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        ip = forwarded_for.split(",")[0].strip()
-    else:
-        ip = request.client.host if request.client else "unknown"
+    peer_address = (
+        request.client.host
+        if request.client
+        else None
+    )
 
-    return f"ip:{ip}"
+    client_ip = resolve_client_ip(
+        peer_address=peer_address,
+        forwarded_for=request.headers.get(
+            "x-forwarded-for"
+        ),
+        trusted_proxies=_trusted_proxy_policy,
+    )
+
+    return f"ip:{client_ip}"
 
 
 def _limit_response(
@@ -112,7 +143,12 @@ async def cloud_guard_middleware(
     if not cloud_settings.cloud_mode and not cloud_settings.rate_limit_enabled and not cloud_settings.inflight_limit_enabled:
         return await call_next(request)
 
-    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+    request_id = (
+        get_request_id()
+        or normalize_request_id(
+            request.headers.get("x-request-id")
+        )
+    )
     bucket = _route_bucket(request.url.path)
     identity = _client_identity(request)
 

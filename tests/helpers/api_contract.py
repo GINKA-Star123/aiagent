@@ -140,10 +140,23 @@ def assert_vision_result_contract(result: dict[str, Any]) -> None:
         "safety",
         "memory",
         "live2d",
+        "channels",
+        "schema_violations",
+        "memory_decision",
         "metadata",
     ]
     for field in required_fields:
         assert field in result, f"missing vision result field: {field}"
+
+    assert isinstance(result["channels"], dict)
+    for channel in ["ocr", "scene", "character"]:
+        assert channel in result["channels"], f"missing vision channel: {channel}"
+        assert result["channels"][channel]["status"] in {"ok", "partial", "missing", "skipped"}
+
+    assert isinstance(result["schema_violations"], list)
+    assert isinstance(result["memory_decision"], dict)
+    assert isinstance(result["memory_decision"]["allow"], bool)
+    assert result["memory_decision"]["reason_code"]
 
     for field in [
         "image_id",

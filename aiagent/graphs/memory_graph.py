@@ -1,7 +1,18 @@
 from __future__ import annotations
 
+import uuid
+import logging
 from typing import Any,TypedDict
+from datetime import datetime, timezone
 
+from aiagent.memory.memory_write_audit import MemoryWriteAuditLog
+from aiagent.memory.memory_write_dispatcher import MemoryWriteDispatcher
+from aiagent.schemas.memory import (
+    MemoryCategory,
+    MemoryImportance,
+    MemorySensitivity,
+    MemoryWriteAudit,
+)
 from langgraph.graph import START,END,StateGraph
 
 from aiagent.memory.memory_preferences import MemoryPreferenceStore
@@ -11,12 +22,18 @@ from aiagent.memory.memory_prompt import MemoryPromptBuilder
 from aiagent.schemas.memory import MemoryWriteDecision,MemoryStorePlan,MemoryRecord
 from aiagent.services.memory_policy_llm_service import MemoryPolicyLLMService
 from aiagent.memory.memory_layers import infer_memory_layer
+from aiagent.graphs.degradation import (
+    build_degraded_memory_retrieve_state,
+    build_degraded_memory_store_state,
+)
 from aiagent.graphs.metadata_utils import (
     mark_stage_done,
     mark_stage_failed,
     mark_stage_skipped,
     now_perf,
 )
+
+logger = logging.getLogger(__name__)
 
 class MemoryGraphState(TypedDict,total=False):
     user_id:str
@@ -46,7 +63,10 @@ class MemoryRunner:
             retrieval_limit:int =6,
             intake_service: MemoryIntakeService|None = None,
             preference_store: MemoryPreferenceStore|None = None,
-            prompt_builder: MemoryPromptBuilder|None = None
+            prompt_builder: MemoryPromptBuilder|None = None,
+            write_dispatcher: MemoryWriteDispatcher|None = None,
+            audit_log: MemoryWriteAuditLog|None = None,
+            async_write_enabled: bool = True,
     ) ->None:
         self.memory = memory
         self.policy_service = policy_service
@@ -55,6 +75,9 @@ class MemoryRunner:
         self.intake_service = intake_service or MemoryIntakeService()
         self.preference_store = preference_store or MemoryPreferenceStore()
         self.prompt_builder = prompt_builder or MemoryPromptBuilder()
+        self.write_dispatcher = write_dispatcher or MemoryWriteDispatcher()
+        self.audit_log = audit_log or MemoryWriteAuditLog()
+        self.async_write_enabled = bool(async_write_enabled)
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -87,29 +110,45 @@ class MemoryRunner:
         retrieval_query:str = "",
         agent_id:str|None = None
     ) ->MemoryGraphState:
+        started_at = now_perf()
         agent = agent_id or self.default_agent_id
-        if not self.preference_store.is_enabled(user_id=user_id,agent_id=agent):
-            return {
-                "user_id": user_id,
-                "agent_id": agent,
-                "memory_hits": [],
-                "memory_prompt_context": "无长期记忆。",
-                "metadata": mark_stage_skipped(
+        try:
+            if not self.preference_store.is_enabled(user_id=user_id,agent_id=agent):
+                return {
+                    "user_id": user_id,
+                    "agent_id": agent,
+                    "memory_hits": [],
+                    "memory_prompt_context": "无长期记忆。",
+                    "metadata": mark_stage_skipped(
+                        {},
+                        "memory_retrieve",
+                        "long_term_memory_disabled_by_user",
+                        memory_long_term_enabled=False,
+                        memory_error="",
+                    ),
+                }
+            return self._retrieve_node(
+                {
+                    "user_id":user_id,
+                    "user_text":user_text,
+                    "retrieval_query":retrieval_query,
+                    "agent_id":agent_id or self.default_agent_id
+                }
+            )
+        except Exception as exc:
+            # 记忆是可选能力：不可用时返回"无长期记忆"
+            return build_degraded_memory_retrieve_state(  #type:ignore
+                user_id=user_id,
+                agent_id=agent,
+                metadata=mark_stage_failed(
                     {},
                     "memory_retrieve",
-                    "long_term_memory_disabled_by_user",
-                    memory_long_term_enabled=False,
+                    started_at,
+                    exc,
+                    memory_error=str(exc),
                 ),
-            }
-        return self._retrieve_node(
-            {
-                "user_id":user_id,
-                "user_text":user_text,
-                "retrieval_query":retrieval_query,
-                "agent_id":agent_id or self.default_agent_id
-            }
-        )
-    
+            )
+        
     def run_after_reply(
             self,
             user_id:str,
@@ -124,38 +163,154 @@ class MemoryRunner:
             metadata:dict[str,Any] |None = None,
             agent_id:str|None = None
     ) ->MemoryGraphState:
+        started_at = now_perf()
         agent = agent_id or self.default_agent_id
-        if not self.preference_store.is_enabled(user_id=user_id, agent_id=agent):
-            return {
-                "user_id": user_id,
-                "agent_id": agent,
-                "store_result": {
-                    "ok": False,
-                    "status": "skipped",
-                    "reason": "long_term_memory_disabled_by_user",
-                },
-                "metadata": mark_stage_skipped(
+        try:
+            if not self.preference_store.is_enabled(user_id=user_id, agent_id=agent):
+                return {
+                    "user_id": user_id,
+                    "agent_id": agent,
+                    "store_result": {
+                        "ok": False,
+                        "status": "skipped",
+                        "reason": "long_term_memory_disabled_by_user",
+                    },
+                    "metadata": mark_stage_skipped(
+                        metadata or {},
+                        "memory_store",
+                        "long_term_memory_disabled_by_user",
+                        memory_long_term_enabled=False,
+                        memory_error="",
+                    ),
+                }
+            state = self.graph.invoke( # type: ignore
+                {
+                    "user_id": user_id,
+                    "user_name": user_name,
+                    "agent_id": agent_id or self.default_agent_id,
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "user_text": user_text,
+                    "assistant_text": assistant_text,
+                    "retrieval_query": retrieval_query or user_text,
+                    "planner_should_store_memory": planner_should_store_memory,
+                    "memory_prompt_context": memory_prompt_context,
+                    "metadata": metadata or {},
+                }
+            )
+            self._append_audit(state) # type: ignore
+            return state # type:ignore 
+        except Exception as exc:
+            self._append_audit_failure(
+                user_id=user_id,
+                agent_id=agent,
+                session_id=session_id,
+                turn_id=turn_id,
+                error=str(exc),
+            )
+            return build_degraded_memory_store_state( # type: ignore
+                user_id=user_id, 
+                agent_id=agent,
+                error=exc,
+                metadata=mark_stage_failed(
                     metadata or {},
                     "memory_store",
-                    "long_term_memory_disabled_by_user",
-                    memory_long_term_enabled=False,
+                    started_at,
+                    exc,
+                    memory_error=str(exc),
                 ),
-            }
-        return self.graph.invoke( # type: ignore
-            {
-                "user_id": user_id,
-                "user_name": user_name,
-                "agent_id": agent_id or self.default_agent_id,
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "user_text": user_text,
-                "assistant_text": assistant_text,
-                "retrieval_query": retrieval_query or user_text,
-                "planner_should_store_memory": planner_should_store_memory,
-                "memory_prompt_context": memory_prompt_context,
-                "metadata": metadata or {},
-            }
+            )
+
+    def run_after_reply_async(
+            self,
+            user_id:str,
+            user_name:str,
+            session_id:str,
+            turn_id:str,
+            user_text:str,
+            assistant_text:str,
+            retrieval_query:str,
+            planner_should_store_memory:bool,
+            memory_prompt_context:str = "",
+            metadata:dict[str,Any] |None = None,
+            agent_id:str|None = None
+    ) ->MemoryGraphState:
+        """异步写入入口：立刻返回 queued，真正的策略判断与写盘在后台线程完成。
+
+        失败只体现在 write_status()/审计日志里，永远不会影响本轮回复。
+        """
+        agent = agent_id or self.default_agent_id
+
+        if not self.async_write_enabled:
+            return self.run_after_reply(
+                user_id=user_id,
+                user_name=user_name,
+                session_id=session_id,
+                turn_id=turn_id,
+                user_text=user_text,
+                assistant_text=assistant_text,
+                retrieval_query=retrieval_query,
+                planner_should_store_memory=planner_should_store_memory,
+                memory_prompt_context=memory_prompt_context,
+                metadata=metadata,
+                agent_id=agent,
+            )
+
+        submitted = self.write_dispatcher.submit(
+            self.run_after_reply,
+            user_id=user_id,
+            user_name=user_name,
+            session_id=session_id,
+            turn_id=turn_id,
+            user_text=user_text,
+            assistant_text=assistant_text,
+            retrieval_query=retrieval_query,
+            planner_should_store_memory=planner_should_store_memory,
+            memory_prompt_context=memory_prompt_context,
+            metadata=metadata or {},
+            agent_id=agent,
         )
+
+        return {
+            "user_id": user_id,
+            "agent_id": agent,
+            "store_result": submitted,
+            "metadata": mark_stage_done(
+                metadata or {},
+                "memory_store_dispatch",
+                now_perf(),
+                memory_write_status=str(submitted.get("status", "")),
+                memory_write_task_id=str(submitted.get("task_id", "")),
+                memory_write_async=True,
+            ),
+        }
+
+    def write_status(self) -> dict[str, Any]:
+        status = self.write_dispatcher.status()
+        status["async_enabled"] = self.async_write_enabled
+        return status
+
+    def drain_writes(self, timeout: float = 5.0) -> bool:
+        return self.write_dispatcher.drain(timeout=timeout)
+
+    def audit_records(self, *, user_id: str = "", limit: int = 20) -> dict[str, Any]:
+        try:
+            records = self.audit_log.tail(user_id=user_id, limit=limit)
+            total = self.audit_log.count(user_id=user_id)
+        except Exception as exc:
+            return {
+                "enabled": True,
+                "count": 0,
+                "records": [],
+                "reason": "audit_read_failed",
+                "error": str(exc),
+            }
+
+        return {
+            "enabled": True,
+            "count": total,
+            "records": [record.model_dump(mode="json") for record in records],
+        }
     
     def _retrieve_node(self, state: MemoryGraphState) -> MemoryGraphState:
         started_at = now_perf()
@@ -176,6 +331,7 @@ class MemoryRunner:
                 "memory_retrieve",
                 started_at,
                 exc,
+                memory_error=str(exc),
                 memory_retrieval_query=query,
             )
             return {
@@ -214,6 +370,7 @@ class MemoryRunner:
             state.get("metadata") or {},
             "memory_retrieve",
             started_at,
+            memory_error="",
             memory_retrieval_query=query,
             memory_hit_count=len(combined_hits),
             memory_retrieved_hit_count=len(hits),
@@ -254,6 +411,7 @@ class MemoryRunner:
                 "memory_decide_write",
                 started_at,
                 exc,
+                memory_error=str(exc),
             )
             return {
                 "metadata": metadata,
@@ -277,18 +435,33 @@ class MemoryRunner:
     def _guard_write_node(self, state: MemoryGraphState) -> MemoryGraphState:
         started_at = now_perf()
 
-        plan = self.intake_service.build_store_plan(
-            decision=state.get("write_decision"),
-            memory_hits=list(state.get("memory_hits", [])),
-            existing_memory_context=state.get("memory_prompt_context", ""),
-            user_text=state.get("user_text", ""),
-            assistant_text=state.get("assistant_text", ""),
-        )
+        try:
+            plan = self.intake_service.build_store_plan(
+                decision=state.get("write_decision"),
+                memory_hits=list(state.get("memory_hits", [])),
+                existing_memory_context=state.get("memory_prompt_context", ""),
+                user_text=state.get("user_text", ""),
+                assistant_text=state.get("assistant_text", ""),
+            )
+        except Exception as exc:
+            metadata = mark_stage_failed(
+                state.get("metadata") or {},
+                "memory_guard_write",
+                started_at,
+                exc,
+                memory_error=str(exc),
+            )
+
+            return {
+                "memory_store_plan": None, # type: ignore
+                "metadata": metadata,
+            }
 
         metadata = mark_stage_done(
             state.get("metadata") or {},
             "memory_guard_write",
             started_at,
+            memory_error="",
             memory_store_plan_status=plan.status,
             memory_store_plan_reason=plan.reason,
             memory_guard_sensitivity=plan.guard.sensitivity.value,
@@ -324,7 +497,11 @@ class MemoryRunner:
             "memory_hint": decision.memory_hint,
             "memory_guard_status": plan.status,
             "memory_guard_reason": plan.reason,
-            "memory_layer": memory_layer.value
+            "memory_layer": memory_layer.value,
+            "source": plan.source or "chat_turn",
+            "created_at": plan.created_at or self._utc_now(),
+            "dedup_duplicate": plan.dedup.duplicate,
+            "dedup_similarity": plan.dedup.similarity,
         }
 
         try:
@@ -344,6 +521,7 @@ class MemoryRunner:
                 "memory_store",
                 started_at,
                 exc,
+                memory_error=str(exc),
             )
             return {
                 "store_result": {
@@ -358,6 +536,7 @@ class MemoryRunner:
             metadata,
             "memory_store",
             started_at,
+            memory_error="",
             memory_store_status="stored",
             memory_store_layer=memory_layer.value
         )
@@ -415,7 +594,87 @@ class MemoryRunner:
             )
 
         return hits
+    def _append_audit(self, state: MemoryGraphState) -> None:
+        """把一次写入决策落进审计日志（stored/duplicate/blocked/skipped 全覆盖）。"""
+        try:
+            store_result = state.get("store_result") or {}
+            if not isinstance(store_result, dict):
+                store_result = {"status": str(store_result)}
 
+            plan = state.get("memory_store_plan")
+            decision = state.get("write_decision")
+
+            status_value = str(store_result.get("status") or "skipped")
+            category = plan.category if plan else (decision.category if decision else MemoryCategory.OTHER)
+            importance = plan.importance if plan else (decision.importance if decision else MemoryImportance.MEDIUM)
+
+            reason = ""
+            source = "chat_turn"
+            memory_text = ""
+            sensitivity = MemorySensitivity.NONE
+            flags: list[str] = []
+
+            if plan is not None:
+                reason = plan.reason
+                source = plan.source or source
+                memory_text = plan.memory_text
+                sensitivity = plan.guard.sensitivity
+                flags = list(plan.guard.flags)
+            elif decision is not None:
+                reason = decision.reason
+
+            self.audit_log.append(
+                MemoryWriteAudit(
+                    audit_id=uuid.uuid4().hex[:12],
+                    user_id=state.get("user_id", "") or "",
+                    agent_id=state.get("agent_id") or self.default_agent_id,
+                    session_id=state.get("session_id", "") or "",
+                    turn_id=state.get("turn_id", "") or "",
+                    status=status_value,
+                    category=category,
+                    importance=importance,
+                    layer=infer_memory_layer(category),
+                    reason=reason,
+                    source=source,
+                    memory_text=memory_text,
+                    sensitivity=sensitivity,
+                    flags=flags,
+                )
+            )
+        except Exception as exc:
+            # 审计只是可观测性，绝不能影响记忆写入结果。
+            logger.warning("Failed to append memory write audit: %s", exc)
+
+    def _append_audit_failure(
+            self,
+            *,
+            user_id: str,
+            agent_id: str,
+            session_id: str,
+            turn_id: str,
+            error: str,
+    ) -> None:
+        try:
+            self.audit_log.append(
+                MemoryWriteAudit(
+                    audit_id=uuid.uuid4().hex[:12],
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    status="failed",
+                    reason="memory_store_failed",
+                    source="chat_turn",
+                    memory_text="",
+                    flags=[],
+                )
+            )
+        except Exception as exc:
+            logger.warning("Failed to append memory write audit: %s", exc)
+
+    def _utc_now(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+    
     def _merge_hits(self, hits: list[MemoryHit]) -> list[MemoryHit]:
         seen_ids: set[str] = set()
         seen_texts: set[str] = set()

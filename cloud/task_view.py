@@ -49,6 +49,7 @@ def sanitize_task(task: dict[str, Any], *, max_error_chars: int = 1600) -> dict[
         ),
         "manual_retry_at": normalize_timestamp(task.get("manual_retry_at")),
         "worker_id": str(task.get("worker_id") or ""),
+        "request_id": str(task.get("request_id") or ""),
         "attempts": _safe_int(task.get("attempts"), 0),
         "max_attempts": _safe_int(task.get("max_attempts"), 0),
         "dead_reason": str(task.get("dead_reason") or ""),

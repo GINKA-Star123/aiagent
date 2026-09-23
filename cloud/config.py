@@ -17,6 +17,34 @@ class CloudSettings(BaseSettings):
 
     redis_url: str = Field(default="", alias="REDIS_URL")
     redis_prefix: str = Field(default="aiagent:v1", alias="REDIS_PREFIX")
+    voice_call_store_provider: str = Field(
+        default="auto",
+        alias="VOICE_CALL_STORE_PROVIDER",
+    )
+    voice_call_store_fail_open: bool = Field(
+        default=False,
+        alias="VOICE_CALL_STORE_FAIL_OPEN",
+    )
+    voice_call_ttl_seconds: int = Field(
+        default=1800,
+        ge=60,
+        alias="VOICE_CALL_TTL_SECONDS",
+    )
+    voice_call_ended_ttl_seconds: int = Field(
+        default=300,
+        ge=60,
+        alias="VOICE_CALL_ENDED_TTL_SECONDS",
+    )
+    voice_call_lock_ttl_seconds: int = Field(
+        default=15,
+        ge=3,
+        alias="VOICE_CALL_LOCK_TTL_SECONDS",
+    )
+    voice_call_lock_wait_seconds: float = Field(
+        default=2.0,
+        ge=0.1,
+        alias="VOICE_CALL_LOCK_WAIT_SECONDS",
+    )
 
     rate_limit_enabled: bool = Field(default=False, alias="RATE_LIMIT_ENABLED")
     inflight_limit_enabled: bool = Field(default=False, alias="INFLIGHT_LIMIT_ENABLED")
@@ -60,6 +88,23 @@ class CloudSettings(BaseSettings):
         if value == "":
             return None
         return value
+    @field_validator(
+        "voice_call_store_provider",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_voice_call_store_provider(
+        cls,
+        value: object,
+    ) -> str:
+        provider = str(value or "auto").strip().lower()
+
+        if provider not in {"auto", "memory", "redis"}:
+            raise ValueError(
+                "VOICE_CALL_STORE_PROVIDER must be auto, memory or redis"
+            )
+
+        return provider
 
 
 cloud_settings = CloudSettings()

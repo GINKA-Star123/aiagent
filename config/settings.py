@@ -93,10 +93,30 @@ class Settings(BaseSettings):
     asr_sample_rate: int = Field(default=16000, alias="ASR_SAMPLE_RATE")
     asr_record_seconds: int = Field(default=10, alias="ASR_RECORD_SECONDS")
 
-    voice_chunk_seconds: float = Field(default=0.25, alias="VOICE_CHUNK_SECONDS")
-    voice_max_record_seconds: float = Field(default=8.0, alias="VOICE_MAX_RECORD_SECONDS")
-    voice_silence_seconds: float = Field(default=1.2, alias="VOICE_SILENCE_SECONDS")
-    voice_energy_threshold: float = Field(default=0.015, alias="VOICE_ENERGY_THRESHOLD")
+    voice_chunk_seconds: float = Field(
+    default=0.25,
+    alias="VOICE_CHUNK_SECONDS",
+    )
+
+    voice_max_record_seconds: float = Field(
+        default=8.0,
+        alias="VOICE_MAX_RECORD_SECONDS",
+    )
+
+    voice_max_upload_bytes: int = Field(
+        default=26214400,
+        alias="VOICE_MAX_UPLOAD_BYTES",
+    )
+
+    voice_silence_seconds: float = Field(
+        default=1.2,
+        alias="VOICE_SILENCE_SECONDS",
+    )
+
+    voice_energy_threshold: float = Field(
+        default=0.015,
+        alias="VOICE_ENERGY_THRESHOLD",
+    )
 
     rag_embedding_provider: str = Field(default="huggingface", alias="RAG_EMBEDDING_PROVIDER")
     rag_embedding_model_name: str = Field(default="BAAI/bge-small-zh-v1.5", alias="RAG_EMBEDDING_MODEL_NAME")
@@ -113,6 +133,9 @@ class Settings(BaseSettings):
     rag_bm25_top_k: int = Field(default=6, alias="RAG_BM25_TOP_K")
     rag_vector_top_k: int = Field(default=6, alias="RAG_VECTOR_TOP_K")
     rag_final_top_k: int = Field(default=4, alias="RAG_FINAL_TOP_K")
+
+    rag_auto_rebuild_on_stale: bool = Field(default=False, alias="RAG_AUTO_REBUILD_ON_STALE")
+    rag_index_manifest_path: str = Field(default="", alias="RAG_INDEX_MANIFEST_PATH")
 
     vision_provider: str = Field(default="mock", alias="VISION_PROVIDER")
     vision_model: str = Field(default="", alias="VISION_MODEL")
@@ -152,9 +175,6 @@ class Settings(BaseSettings):
         alias="VISION_CHARACTER_CONFIDENT_SCORE",
     )
 
-
-
-
     memory_llm_provider: str = Field(default="openai", alias="MEMORY_LLM_PROVIDER")
     memory_llm_model: str = Field(default="gpt-4o-mini", alias="MEMORY_LLM_MODEL")
     memory_llm_api_key_env: str = Field(default="OPENAI_API_KEY", alias="MEMORY_LLM_API_KEY_ENV")
@@ -180,6 +200,9 @@ class Settings(BaseSettings):
     memory_prompt_pinned_limit: int = Field(default=4, alias="MEMORY_PROMPT_PINNED_LIMIT")
     memory_prompt_relevant_limit: int = Field(default=6, alias="MEMORY_PROMPT_RELEVANT_LIMIT")
     memory_prompt_item_max_chars: int = Field(default=120, alias="MEMORY_PROMPT_ITEM_MAX_CHARS")
+    memory_write_async_enabled: bool = Field(default=True, alias="MEMORY_WRITE_ASYNC_ENABLED")
+    memory_write_max_pending: int = Field(default=16, alias="MEMORY_WRITE_MAX_PENDING")
+    memory_write_audit_tail_limit: int = Field(default=200, alias="MEMORY_WRITE_AUDIT_TAIL_LIMIT")
 
     qdrant_host: str = Field(default="localhost", alias="QDRANT_HOST")
     qdrant_port: int = Field(default=6333, alias="QDRANT_PORT")
@@ -193,11 +216,28 @@ class Settings(BaseSettings):
 
     memory_reset_vector_store: bool = Field(default=False, alias="MEMORY_RESET_VECTOR_STORE")
 
-    api_host: str = Field(default="127.0.0.1", alias="API_HOST")
-    api_port: int = Field(default=8000, alias="API_PORT")
+    api_host: str = Field(
+    default="127.0.0.1",
+    alias="API_HOST",
+    )
+    api_port: int = Field(
+        default=8000,
+        alias="API_PORT",
+    )
     api_cors_origins: str = Field(
-        default="http://localhost:3000,http://127.0.0.1:3000",
+        default=(
+            "http://localhost:3000,"
+            "http://127.0.0.1:3000"
+        ),
         alias="API_CORS_ORIGINS",
+    )
+    api_cors_allow_credentials: bool = Field(
+        default=True,
+        alias="API_CORS_ALLOW_CREDENTIALS",
+    )
+    api_trusted_proxies: str = Field(
+        default="127.0.0.1,::1",
+        alias="API_TRUSTED_PROXIES",
     )
 
     persona_name: str = DEFAULT_PERSONA_NAME

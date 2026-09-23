@@ -84,6 +84,52 @@ data/cache/knowledge/
 
 该目录属于运行缓存，不应作为源码提交。
 
+## 评测集规范（V1.1）
+
+### 字段
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `case_id` | 是 | 全局唯一；`load_cases()` 会拒绝重复 id 并报出行号 |
+| `category` | 是 | `character` / `setting` / `song` / `fan_chant` / `group` / `relation` / `mixed` / `workflow` / `negative` |
+| `query` | 是 | 用户原始问法（别名、英文标识都按原样写，不做人工归一化） |
+| `expected_source_paths` | 否 | 期望命中的来源文档（相对 `data/knowledge/public`） |
+| `required_source_paths` | 否 | 必须命中的子集（配合 `match_mode: any` 做多文档题） |
+| `forbidden_source_paths` | 否 | 不该命中的文档（负例护栏） |
+| `match_mode` | 否 | `source` / `title` / `term` / `any` |
+| `tags` | 否 | 便于按主题统计（`alias` / `english_id` / `song` / `multi-hop` / `negative` …） |
+| `difficulty` | 否 | `easy` / `normal` / `hard`；报告里按难度分组看通过率 |
+
+### 硬性规则
+
+1. **`case_id` 不得重复**（重复会让 pass_rate / recall / mrr 被同一条用例重复计入）。
+2. 每条用例必须带 `tags` 与 `difficulty`，保证 `tag_counts` / `difficulty_counts` 有分布。
+3. 新增用例优先覆盖：别名（中文简称）、英文标识、跨文档关系（`multi-hop`）、知识库无关（`negative`）。
+4. 负例统一使用 `forbidden_source_paths`，**不要**用"期望为空"的模糊写法。
+
+### 当前基线规模
+
+| 类别 | 条数（目标） |
+| --- | --- |
+| character | 12+ |
+| setting | 3+ |
+| song | 2+ |
+| fan_chant | 2+ |
+| group | 1+ |
+| relation | 2+ |
+| mixed | 3+ |
+| workflow | 2+ |
+| negative | 2+ |
+
+### 与代码的对应关系
+
+| 能力 | 实现位置 |
+| --- | --- |
+| 别名 / 英文标识查询扩展 | `aiagent/knowledge/query_normalizer.py` + `character_aliases.py` |
+| 文档 metadata（角色/主题/来源/可信等级/更新时间） | `aiagent/knowledge/document_loader.py` |
+| 标识参与 BM25 检索 | `aiagent/knowledge/retriever.py`（可检索文本 = 标识头 + 正文） |
+| 评测执行与汇总 | `aiagent/knowledge/rag_eval.py` / `rag_eval_report.py` |
+
 ## 推荐报告输出
 
 V1.1 报告化后，默认报告目录建议为：

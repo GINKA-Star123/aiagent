@@ -1,25 +1,84 @@
+# ============================================================
+# AIAgent .gitignore
+# 规则分层：密钥 → Python 产物 → 运行时产物 → 大文件 → 示例资产白名单
+# 目录分类的权威解释见 docs/repo-governance.md
+# ============================================================
+
+# ===== 1. 密钥与本地环境（绝不入仓）=====
 .env
+.env.*
+!.env.example
+cloud.tencent.env
+!cloud.tencent.example.env
+*.pem
+*.key
+
+# ===== 2. Python 构建与缓存 =====
 .venv/
 __pycache__/
+*.py[cod]
+*.egg-info/
 .pytest_cache/
-*.pyc
+.ruff_cache/
+.mypy_cache/
+build/
+dist/
+
+# ===== 3. 前端依赖（客户端代码是否入仓见 repo-governance）=====
 node_modules/
 .next/
-dist/
-build/
+apps/flutter_client/build/
+apps/flutter_client/.dart_tool/
+apps/flutter_client/.flutter-plugins
+apps/flutter_client/.flutter-plugins-dependencies
+
+# ===== 4. 运行时产物：被忽略，但仍是正常运行所必需 =====
 data/cache/
 data/logs/
-data/
-scripts/
-third_party/
-apps/flutter_client/
-apps/desktop_qt/
-cloud.tencent.env
-gpu_services
+data/uploads/
+data/runtime/
+data/memory/
+data/cloud_storage/
+data/persona/
+data/vr_pdf_text/
 _tmp/
-# Large model files
+
+# ===== 5. 大文件与模型（绝不入仓）=====
 data/models/
+third_party/
+gpu_services/
 *.bin
 *.safetensors
 *.pt
 *.pth
+*.onnx
+
+# ===== 6. 相关内部文档与本地资产（绝不入仓）=====
+data/knowledge
+
+# 注意：这里必须写 data/live2d/，不能写 live2d/。
+# 无前缀斜杠的 "live2d/" 会匹配任意层级的同名目录，
+# 从而把源码包 aiagent/live2d/ 与 integrations/live2d/ 一起排除，
+# 已跟踪文件不受影响、但新加的文件会被静默忽略。
+data/live2d/
+
+# 角色参考图库：132 个文件约 414MB，属本地私有资产，不入仓。
+# 必须写成 data/characters/*（而不是 data/characters/）：
+# 排除"目录本身"后，!data/characters/README.md 这种反选不会生效；
+# 只排除目录内容，才能给 README 单独开口子。
+data/characters/*
+!data/characters/README.md
+
+# ===== 7. 前端部分（绝不入仓）=====
+apps/desktop_qt
+apps/flutter_client
+
+
+# ===== 8. 例外白名单 =====
+# 本仓库的策略：data/ 下的知识文档、角色图库、缓存、上传与运行状态全部不入仓，
+# 因此 clone 后 data/knowledge/ 为空，RAG 检索用例会按 skipif 自动跳过（见 tests/rag）。
+# 唯一的例外是下面这个说明文件：data/characters/ 被整体忽略，
+# 但需要一个 README 说明"资产放这里、格式要求、如何获取"，所以用 ! 反选。
+# 注意：不能用 ! 反选"父目录已被排除"的文件，因此这里只对 README 单独开口子。
+!data/characters/README.md
+

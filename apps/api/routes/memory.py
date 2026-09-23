@@ -234,3 +234,18 @@ def merge_user_memory_items(user_id: str, req: MemoryMergeRequest):
         )
 
     return ok_response(result=result)
+
+@router.get("/memory/write/status")
+def get_memory_write_status():
+    """异步记忆写入队列状态（pending/running/last）。"""
+    runtime = get_runtime()
+    return ok_response(status=runtime.get_memory_write_status())
+
+
+@router.get("/memory/user/{user_id}/audit")
+def get_user_memory_audit(user_id: str, limit: int = 20):
+    """用户查看自己长期记忆的写入审计：记了什么、为什么记、什么时候记的。"""
+    runtime = get_runtime()
+    return ok_response(
+        audit=runtime.get_user_memory_audit(user_id=user_id, limit=limit),
+    )

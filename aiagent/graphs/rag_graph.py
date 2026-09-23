@@ -5,6 +5,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from aiagent.graphs.graph_model import RAGGraphInput, RAGGraphResult
+from aiagent.graphs.degradation import RAG_DEGRADED_REASON, build_degraded_rag_result
 
 from aiagent.graphs.metadata_utils import (
     mark_stage_done,
@@ -68,17 +69,33 @@ class RAGRunner:
         planner_should_retrieve: bool = False,
     ) -> RAGGraphResult:
         started_at = now_perf()
-        result = self.graph.invoke(
-            {
-                "input": RAGGraphInput(
-                    user_text=user_text,
-                    state_intent=state_intent,
-                    state_topic=state_topic,
-                    planner_query=planner_query,
-                    planner_should_retrieve=planner_should_retrieve,
-                )
-            }
-        )
+        try:
+            result = self.graph.invoke(
+                {
+                    "input": RAGGraphInput(
+                        user_text=user_text,
+                        state_intent=state_intent,
+                        state_topic=state_topic,
+                        planner_query=planner_query,
+                        planner_should_retrieve=planner_should_retrieve,
+                    )
+                }
+            )
+        except Exception as exc:
+            # RAG 是可选能力：整图失败时降级为空上下文，绝不阻断主链路（roadmap 5.2）
+            metadata = mark_stage_failed(
+                {},
+                "rag_graph",
+                started_at,
+                exc,
+                rag_error=str(exc),
+            )
+            return build_degraded_rag_result(
+                query=planner_query or user_text,
+                reason=RAG_DEGRADED_REASON,
+                metadata=metadata,
+            )
+        
         metadata = mark_stage_done(
             dict(result.get("metadata", {})),
             "rag_graph",
@@ -144,6 +161,7 @@ class RAGRunner:
                 "rag_retrieve",
                 started_at,
                 exc,
+                rag_error=str(exc),
             )
             return {
                 "raw_context": [],
