@@ -12,6 +12,7 @@ from cloud.config import cloud_settings
 from cloud.degrade import degraded_chat_response
 from cloud.timeouts import CloudTimeoutError, to_thread_with_timeout
 from apps.api.response_utils import error_response, ok_response
+from apps.api.shared_state_errors import shared_state_error_response
 from apps.core.runtime_registry import get_runtime, get_runtime_error
 from config.settings import settings
 
@@ -31,6 +32,10 @@ async def chat(req: ChatRequest):
     try:
         runtime = get_runtime()
     except Exception as exc:
+        shared_error = shared_state_error_response(exc)
+        if shared_error is not None:
+            return shared_error
+
         logger.exception("Runtime init failed in /chat: %s", exc)
         return error_response(
             stage="runtime_init",
@@ -92,6 +97,10 @@ async def chat(req: ChatRequest):
         )
 
     except Exception as exc:
+        shared_error = shared_state_error_response(exc)
+        if shared_error is not None:
+            return shared_error
+
         logger.exception("Chat route failed: %s", exc)
 
         if cloud_settings.cloud_mode:

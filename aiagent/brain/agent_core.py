@@ -49,22 +49,21 @@ class AgentCore:
     def clear_runtime_context(self) -> None:
         self.main_runner.clear_all_threads()
 
-    def _build_history_lines(self,session_id:str="") -> list[str]:
-        """把会话状态翻译成主图可用的 history 行。
+    def _build_history_lines(self, session_id: str) -> list[str]:
+        runner = self.main_runner.llm_runner
+        thread_id = session_id
+        shared_history = runner.recent_dialogue_lines(thread_id=thread_id, limit=8)
+        if shared_history:
+            return shared_history
 
-        ``session_id`` 非空时只取该会话的轮次,
-        避免同一用户的不同会话互相看到对方的对话。
-        """
-        lines: list[str] = []
+        # 仅在明确 local 模式下使用旧的进程内状态作为兼容回退。
+        if getattr(runner, "shared_state_store", None) is not None:
+            return []
 
-        for pair in self.conversation_state.recent_dialogue_pairs(limit=4,session_id=session_id):
-            user = str(pair.get("user", "")).strip()
-            user_text = str(pair.get("input", "")).strip()
-            reply_text = str(pair.get("reply", "")).strip()
-
-            if user_text:
-                lines.append(f"{user or '用户'}: {user_text}")
-            if reply_text:
-                lines.append(f"助手: {reply_text}")
-
-        return lines
+        return [ # type: ignore
+            pair
+            for pair in self.conversation_state.recent_dialogue_pairs(
+                limit=4,
+                session_id=session_id,
+            )
+        ]

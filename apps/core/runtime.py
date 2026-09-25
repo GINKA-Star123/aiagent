@@ -425,8 +425,18 @@ class CoreRuntime:
 
     def clear_user_memories(self, user_id: str) -> dict[str, str]:
         self.long_term_memory.delete_all(user_id=user_id)
+
         cleared_threads = self.agent_core.main_runner.clear_user_threads(user_id)
-        return {"status": "cleared", "user_id": user_id, "cleared_thread_count":str(len(cleared_threads))}
+
+        # 这里只清理当前 Worker 的短期视图；跨 Worker 的事实删除由共享
+        # thread/checkpoint store 完成。
+        self.conversation_state.clear()
+
+        return {
+            "status": "cleared",
+            "user_id": user_id,
+            "cleared_thread_count": str(len(cleared_threads)),
+        }
 
     def get_memory_snapshot(self, user_id: str, limit: int = 200) -> dict:
         snapshot = self.long_term_memory.get_snapshot(

@@ -11,7 +11,7 @@ from aiagent.schemas.inputs import InputEvent
 from aiagent.schemas.outputs import OutputEvent
 from aiagent.state.agent_state import AgentRuntimeState
 from aiagent.state.conversation_state import ConversationState
-
+from aiagent.state.redis_state_store import RedisStateStore
 
 class EventDispatcher:
     def __init__(
@@ -26,6 +26,7 @@ class EventDispatcher:
         conversation_state: ConversationState,
         dialogue_manager: DialogueManager,
         interrupt_manager: InterruptManager,
+        shared_state_store: RedisStateStore | None = None,
     ) -> None:
         self.event_bus = event_bus
         self.scheduler = scheduler
@@ -37,8 +38,9 @@ class EventDispatcher:
         self.conversation_state = conversation_state
         self.dialogue_manager = dialogue_manager
         self.interrupt_manager = interrupt_manager
+        self.shared_state_store = shared_state_store
 
-    def handle_input(self, event: InputEvent) -> OutputEvent:
+    def _handle_input_unlocked(self, event: InputEvent) -> OutputEvent:
         session_id = self.session_manager.resolve_session_id(event)
         turn_id = self.session_manager.resolve_turn_id(event,session_id=session_id)
 
@@ -102,3 +104,19 @@ class EventDispatcher:
         )
 
         return output
+
+    def handle_input(
+        self,
+        event: InputEvent,
+    ) -> OutputEvent:
+        session_id = self.session_manager.resolve_session_id(event)
+        event.session_id = session_id
+
+        if self.shared_state_store is None:
+            return self._handle_input_unlocked(event)
+
+        with self.shared_state_store.session_lock(
+            session_id=session_id,
+            lease_seconds=60,
+        ):
+            return self._handle_input_unlocked(event)

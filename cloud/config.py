@@ -78,6 +78,38 @@ class CloudSettings(BaseSettings):
     gpu_tts_base_url: str = Field(default="", alias="GPU_TTS_BASE_URL")
     gpu_asr_base_url: str = Field(default="", alias="GPU_ASR_BASE_URL")
 
+    execution_state_mode: str = Field(
+        default="local",
+        alias="EXECUTION_STATE_MODE",
+    )
+    execution_state_fail_closed: bool = Field(
+        default=True,
+        alias="EXECUTION_STATE_FAIL_CLOSED",
+    )
+    execution_state_session_ttl_seconds: int = Field(
+        default=86400,
+        ge=300,
+        alias="EXECUTION_STATE_SESSION_TTL_SECONDS",
+    )
+    execution_state_thread_ttl_seconds: int = Field(
+        default=1800,
+        ge=300,
+        alias="EXECUTION_STATE_THREAD_TTL_SECONDS",
+    )
+    execution_state_lock_ttl_seconds: int = Field(
+        default=60,
+        ge=10,
+        alias="EXECUTION_STATE_LOCK_TTL_SECONDS",
+    )
+
+    @field_validator("execution_state_mode")
+    @classmethod
+    def validate_execution_state_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in {"local", "redis"}:
+            raise ValueError("EXECUTION_STATE_MODE must be local or redis")
+        return normalized
+
     @field_validator(
         "s3_access_key_id",
         "s3_secret_access_key",

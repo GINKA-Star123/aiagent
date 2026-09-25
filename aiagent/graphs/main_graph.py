@@ -17,6 +17,7 @@ from aiagent.schemas.inputs import InputAttachment, InputEvent
 from aiagent.schemas.outputs import EmotionLabel, ResponsePacket
 from aiagent.schemas.safety import RequestRiskAssessment
 from aiagent.live2d.payload_contract import normalize_live2d_payload
+from aiagent.state.shared_state_guard import raise_if_shared_state_error
 
 from aiagent.graphs.metadata_utils import (
     mark_stage_done,
@@ -274,7 +275,7 @@ class MainRunner:
         )
 
         live2d = self._build_live2d_payload(
-            emotion=refusal.emotion,
+            emotion=refusal.emotion, # type: ignore
             motion=refusal.motion,
             expression=refusal.expression,
             audio_url="",
@@ -346,6 +347,7 @@ class MainRunner:
                 user_id=event.user_id,
             )
         except Exception as exc:
+            raise_if_shared_state_error(exc)
             metadata = mark_stage_failed(
                 metadata,
                 STAGE_VISION,
@@ -399,6 +401,7 @@ class MainRunner:
                 retrieval_query=query,
             )
         except Exception as exc:
+            raise_if_shared_state_error(exc)
             metadata = mark_stage_failed(
                 metadata,
                 STAGE_MEMORY_RETRIEVE,
@@ -439,6 +442,7 @@ class MainRunner:
                 history=state.get("history", []),
             )
         except Exception as exc:
+            raise_if_shared_state_error(exc)
             metadata = mark_stage_failed(
                 metadata,
                 STAGE_STATE,
@@ -474,6 +478,7 @@ class MainRunner:
                 persona_runtime=state["persona_runtime"],# type: ignore
             )
         except Exception as exc:
+            raise_if_shared_state_error(exc)
             metadata = mark_stage_failed(
                 metadata,
                 STAGE_PLANNER,
@@ -513,6 +518,7 @@ class MainRunner:
                 planner_should_retrieve=bool(getattr(planner_result, "should_retrieve", False)),
             )
         except Exception as exc:
+            raise_if_shared_state_error(exc)
             metadata = mark_stage_failed(
                 metadata,
                 STAGE_RAG,
@@ -562,6 +568,7 @@ class MainRunner:
                 user_id=event.user_id,
             )
         except Exception as exc:
+            raise_if_shared_state_error(exc)
             metadata = mark_stage_failed(
                 metadata,
                 STAGE_LLM,

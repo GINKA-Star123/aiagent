@@ -632,3 +632,42 @@ POST /knowledge/rebuild  {"force_rebuild": true}
 # settings.py / cloud/config.py ↔ .env.example ↔ 本文档 三方比对
 .venv\Scripts\python.exe scripts\check_config_sync.py
 ```
+## 本地与云端统一配置约定
+
+本地启动和云服务器部署使用同一套环境变量名称，区别只通过变量值表达部署位置。这样可以复用配置校验、启动脚本和运维文档，避免本地与云端出现两套配置语义。
+
+| 配置项 | 本地服务端 | 云端服务端 | 说明 |
+| --- | --- | --- | --- |
+| `APP_ENV` | `development` | `production` | 运行环境标识 |
+| `CLOUD_MODE` | `false` | `true` | 云端限流、readiness 和运维行为开关 |
+| `API_HOST` | `0.0.0.0` | `0.0.0.0` | 服务监听地址；访问范围由防火墙、反向代理和 CORS 控制 |
+| `API_PUBLIC_BASE_URL` | 留空或本地 API 地址 | 正式 API 地址 | 对外 URL 生成和客户端配置 |
+| `API_CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | 正式前端 Origin | 只填写 Origin，不带路径和尾部 API 路径 |
+| `API_CORS_ALLOW_CREDENTIALS` | `true` | `true` | 使用 Cookie 或认证凭据时启用；必须配合明确 Origin |
+| `API_TRUSTED_PROXIES` | `127.0.0.1,::1` | 反向代理或容器网段 | 只填写实际可信代理网段 |
+| `REDIS_URL` | `redis://127.0.0.1:6379/0` | `redis://redis:6379/0` 或云 Redis 地址 | 本地和云端均使用 Redis 作为共享状态后端 |
+| `EXECUTION_STATE_MODE` | `redis` | `redis` | 多进程或多实例部署不能使用 `local` |
+| `EXECUTION_STATE_FAIL_CLOSED` | `true` | `true` | Redis 不可用时拒绝依赖共享状态的请求 |
+| `STORAGE_PROVIDER` | `local` | `cos` 或其他对象存储 | 文件持久化位置按部署环境选择 |
+| `LOG_FORMAT` | `text` | `json` | 本地便于阅读，云端便于日志采集 |
+
+本地模板使用：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+云端模板使用：
+
+```powershell
+Copy-Item cloud.tencent.example.env cloud.tencent.env
+```
+
+复制后只修改对应环境的值，不要新增另一套变量名。云端必须替换所有 `your-*`、`change-*` 占位符；`API_CORS_ORIGINS` 不能使用 `*`，并且不能在启用 `API_CORS_ALLOW_CREDENTIALS=true` 时使用通配符。
+共享执行状态还必须同步以下 TTL 配置：
+
+| 配置项 | 本地与云端建议值 | 说明 |
+| --- | --- | --- |
+| `EXECUTION_STATE_SESSION_TTL_SECONDS` | `86400` | 会话级共享状态保留时间 |
+| `EXECUTION_STATE_THREAD_TTL_SECONDS` | `1800` | Thread 级共享状态保留时间 |
+| `EXECUTION_STATE_LOCK_TTL_SECONDS` | `60` | 分布式状态锁的最大持有时间 |

@@ -63,8 +63,11 @@ from aiagent.state.conversation_state import ConversationState
 from aiagent.state.emotion_state import EmotionState
 from aiagent.state.speaking_state import SpeakingState
 from aiagent.state.stream_state import StreamingState
+from aiagent.state.redis_state_store import RedisStateStore
+from aiagent.state.shared_state import SharedStateUnavailableError
 from apps.core.runtime import CoreRuntime
 from config.settings import settings
+from cloud.config import cloud_settings
 from integrations.asr.api_asr_client import ApiASRClient
 from integrations.asr.faster_whisper_client import FasterWhisperClient
 from integrations.asr.microphone import StreamingMicrophone
@@ -101,6 +104,65 @@ def _resolve_env_secret(value: str | None) -> str | None:
 
     return None
 
+def build_shared_state_store():
+    mode = cloud_settings.execution_state_mode
+    if mode == "local":
+        return None
+
+    if mode != "redis":
+        raise RuntimeError(f"unsupported execution state mode: {mode}")
+
+    if not cloud_settings.redis_url:
+        if cloud_settings.execution_state_fail_closed:
+            raise RuntimeError("redis execution state is required but REDIS_URL is empty")
+        return None
+
+    return RedisStateStore(
+        redis_url=cloud_settings.redis_url,
+        prefix=cloud_settings.redis_prefix,
+        session_ttl_seconds=cloud_settings.execution_state_session_ttl_seconds,
+        thread_ttl_seconds=cloud_settings.execution_state_thread_ttl_seconds,
+        fail_closed=cloud_settings.execution_state_fail_closed,
+    )
+
+def build_llm_checkpointer():
+    if cloud_settings.execution_state_mode == "local":
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        return InMemorySaver()
+
+    if cloud_settings.execution_state_mode != "redis":
+        raise RuntimeError(
+            "unsupported execution state mode: "
+            f"{cloud_settings.execution_state_mode}"
+        )
+
+    if not cloud_settings.redis_url:
+        raise RuntimeError(
+            "REDIS_URL is required when EXECUTION_STATE_MODE=redis"
+        )
+
+    try:
+        from langgraph.checkpoint.redis import RedisSaver
+    except ImportError as exc:
+        raise RuntimeError(
+            "RedisSaver is not installed. "
+            "Install langgraph-checkpoint-redis first."
+        ) from exc
+
+    try:
+        checkpointer = RedisSaver(
+            redis_url=cloud_settings.redis_url,
+            checkpoint_prefix=f"{cloud_settings.redis_prefix}:checkpoint",
+            checkpoint_write_prefix=f"{cloud_settings.redis_prefix}:checkpoint-write",
+        )
+        checkpointer.setup()
+        return checkpointer
+    except Exception as exc:
+        raise SharedStateUnavailableError(
+            "RedisSaver initialization failed; refusing to fall back to "
+            "InMemorySaver in redis execution mode."
+        ) from exc
 
 def build_runtime() -> CoreRuntime:
     """根据配置组装后端长生命周期 runtime。"""
@@ -300,8 +362,15 @@ def build_runtime() -> CoreRuntime:
         },
     )
 
+    shared_state_store = build_shared_state_store()
+
     llm_service = LLMService(settings=settings)
-    llm_runner = LLMRunner(llm_service=llm_service, short_term_turn_window=6)
+    llm_runner = LLMRunner(
+        llm_service=llm_service,
+        short_term_turn_window=6,
+        shared_state_store=shared_state_store,
+        checkpointer=build_llm_checkpointer(),
+    )
     capabilities.mark_available(
         "llm",
         "Main LLM service is configured.",
@@ -375,7 +444,7 @@ def build_runtime() -> CoreRuntime:
         item_max_chars=settings.memory_prompt_item_max_chars,
     )
 
-    memory_write_dispathcer = MemoryWriteDispatcher(
+    memory_write_dispatcher = MemoryWriteDispatcher(
         max_pending=settings.memory_write_max_pending,
     )
 
@@ -388,7 +457,7 @@ def build_runtime() -> CoreRuntime:
         policy_service=MemoryPolicyLLMService(llm_service=llm_service),
         preference_store=memory_preferences,
         prompt_builder=memory_prompt_builder,
-        write_dispatcher=memory_write_dispathcer,
+        write_dispatcher=memory_write_dispatcher,
         audit_log=memory_write_audit,
         async_write_enabled=settings.memory_write_async_enabled,
     )
@@ -403,8 +472,12 @@ def build_runtime() -> CoreRuntime:
     )
 
     persona_loader = PersonaLoader()
-    persona_manager = PersonaManager(loader=persona_loader)
 
+    persona_manager = PersonaManager(
+        loader=persona_loader,
+        shared_state_store=shared_state_store,
+    )
+    
     agent_core = AgentCore(
         main_runner=main_runner,
         agent_state=agent_state,
@@ -611,8 +684,8 @@ def build_runtime() -> CoreRuntime:
         conversation_state=conversation_state,
         dialogue_manager=dialogue_manager,
         interrupt_manager=interrupt_manager,
+        shared_state_store=shared_state_store,
     )
-
     capabilities.mark_available(
         "runtime",
         "Runtime build completed.",

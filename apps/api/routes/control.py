@@ -2,10 +2,26 @@ import json
 
 from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
+from starlette.responses import JSONResponse
 
+from apps.api.shared_state_errors import shared_state_error_response
 from apps.core.runtime_registry import get_runtime
 
 router = APIRouter()
+
+
+def _get_runtime_or_error():
+    try:
+        return get_runtime()
+    except Exception as exc:
+        shared_error = shared_state_error_response(exc)
+        if shared_error is not None:
+            return shared_error
+        raise
+
+
+def _is_error_response(value: object) -> bool:
+    return isinstance(value, JSONResponse)
 
 
 class ControlInputRequest(BaseModel):
@@ -28,7 +44,9 @@ class InterruptRequest(BaseModel):
 
 @router.post("/control/input")
 def control_input(req: ControlInputRequest):
-    runtime = get_runtime()
+    runtime = _get_runtime_or_error()
+    if _is_error_response(runtime):
+        return runtime
 
     payload = {
         "user_id": req.user_id,
@@ -39,10 +57,16 @@ def control_input(req: ControlInputRequest):
         "metadata": req.metadata,
     }
 
-    output = runtime.handle_source_payload(
-        source=req.source,
-        payload=payload,
-    )
+    try:
+        output = runtime.handle_source_payload(
+            source=req.source,
+            payload=payload,
+        )
+    except Exception as exc:
+        shared_error = shared_state_error_response(exc)
+        if shared_error is not None:
+            return shared_error
+        raise
 
     body = json.dumps(
         {
@@ -66,7 +90,9 @@ def control_input(req: ControlInputRequest):
 
 @router.get("/control/status")
 def control_status():
-    runtime = get_runtime()
+    runtime = _get_runtime_or_error()
+    if _is_error_response(runtime):
+        return runtime
 
     body = json.dumps(
         {
@@ -84,7 +110,9 @@ def control_status():
 
 @router.post("/control/pause")
 def pause_control(req: PauseRequest):
-    runtime = get_runtime()
+    runtime = _get_runtime_or_error()
+    if _is_error_response(runtime):
+        return runtime
     result = runtime.pause_dialogue() if req.paused else runtime.resume_dialogue()
 
     body = json.dumps(
@@ -104,7 +132,9 @@ def pause_control(req: PauseRequest):
 
 @router.post("/control/resume")
 def resume_control():
-    runtime = get_runtime()
+    runtime = _get_runtime_or_error()
+    if _is_error_response(runtime):
+        return runtime
     result = runtime.resume_dialogue()
 
     body = json.dumps(
@@ -124,8 +154,16 @@ def resume_control():
 
 @router.post("/control/reset-context")
 def reset_context():
-    runtime = get_runtime()
-    result = runtime.reset_dialogue_context()
+    runtime = _get_runtime_or_error()
+    if _is_error_response(runtime):
+        return runtime
+    try:
+        result = runtime.reset_dialogue_context()
+    except Exception as exc:
+        shared_error = shared_state_error_response(exc)
+        if shared_error is not None:
+            return shared_error
+        raise
 
     body = json.dumps(
         {
@@ -144,7 +182,9 @@ def reset_context():
 
 @router.post("/control/interrupt")
 def interrupt_control(req: InterruptRequest):
-    runtime = get_runtime()
+    runtime = _get_runtime_or_error()
+    if _is_error_response(runtime):
+        return runtime
     result = runtime.interrupt_speaking(reason=req.reason)
 
     body = json.dumps(

@@ -12,6 +12,11 @@ from aiagent.graphs.graph_model import LLMGraphInput, LLMGraphResult
 from aiagent.graphs.metadata_utils import mark_stage_done, now_perf
 from aiagent.persona.persona_runtime import PersonaRuntime
 from aiagent.services.llm_service import LLMService
+from aiagent.state.redis_state_store import RedisStateStore
+from aiagent.state.shared_state import (
+    SharedStateOwnershipError,
+    ThreadOwnerRecord,
+)
 from config.providers import LLMProvider
 
 NO_EXTERNAL_KNOWLEDGE_TEXT = "无外部知识。"
@@ -31,10 +36,19 @@ class LLMGraphState(MessagesState):
 
 
 class LLMRunner:
-    def __init__(self, llm_service: LLMService, short_term_turn_window: int = 6) -> None:
+    def __init__(
+        self,
+        llm_service: LLMService,
+        short_term_turn_window: int = 6,
+        shared_state_store: RedisStateStore | None = None,
+        checkpointer: object | None = None,
+    ) -> None:
         self.llm_service = llm_service
         self.short_term_turn_window = short_term_turn_window
-        self.checkpointer = InMemorySaver()
+        self.shared_state_store = shared_state_store
+        self.checkpointer = (
+            checkpointer if checkpointer is not None else InMemorySaver()
+        )
         self._persona_runtime_cache: dict[str, PersonaRuntime] = {}
         self._thread_users: dict[str, str] = {}
         self.graph = self._build_graph()
@@ -55,7 +69,7 @@ class LLMRunner:
         graph.add_edge("call_llm", "normalize_reply")
         graph.add_edge("normalize_reply", END)
 
-        return graph.compile(checkpointer=self.checkpointer)
+        return graph.compile(checkpointer=self.checkpointer) # type: ignore
 
     def _create_summarize_node(self):
         if self.llm_service.settings.enable_mock_llm or self.llm_service.settings.llm_provider == LLMProvider.MOCK:
@@ -176,7 +190,23 @@ class LLMRunner:
         user_id: str = "",
     ) -> LLMGraphResult:
         started_at = now_perf()
+
+        if self.shared_state_store is not None:
+            if not user_id.strip():
+                raise SharedStateOwnershipError(
+                    "shared execution state requires a non-empty user_id"
+                )
+
+            self.shared_state_store.register_thread(
+                ThreadOwnerRecord(
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    session_id=thread_id,
+                )
+            )
+
         self._persona_runtime_cache[thread_id] = persona_runtime
+
         if user_id:
             self._thread_users[thread_id] = user_id
 
@@ -269,31 +299,81 @@ class LLMRunner:
 
         return lines[-limit:]
 
-    def clear_thread(self, thread_id: str) -> None:
-        self._persona_runtime_cache.pop(thread_id, None)
-        self._thread_users.pop(thread_id, None)
-        self.graph.update_state(
-            {"configurable": {"thread_id": thread_id}},
-            {"messages": [], "context": {}, "summarized_messages": []},
+    def clear_thread(
+        self,
+        thread_id: str,
+        user_id: str = "",
+    ) -> None:
+        if not thread_id.strip():
+            raise ValueError("thread_id must not be empty")
+
+        resolved_user_id = user_id.strip()
+
+        if not resolved_user_id:
+            resolved_user_id = self._thread_users.get(thread_id, "")
+
+        if (
+            not resolved_user_id
+            and self.shared_state_store is not None
+        ):
+            owner = self.shared_state_store.get_thread_owner(thread_id)
+            if owner is not None:
+                resolved_user_id = owner.user_id
+
+        delete_thread = getattr(
+            self.checkpointer,
+            "delete_thread",
+            None,
         )
 
+        if not callable(delete_thread):
+            raise RuntimeError(
+                "configured checkpointer does not support delete_thread"
+            )
+
+        # 先删除 checkpoint，再删除 owner 索引。
+        # 如果索引删除失败，可以通过 owner 索引重试；
+        # 反过来先删索引会造成 checkpoint 遗留且无法定位。
+        delete_thread(thread_id)
+
+        if (
+            self.shared_state_store is not None
+            and resolved_user_id
+        ):
+            self.shared_state_store.delete_thread_registration(
+                thread_id=thread_id,
+                user_id=resolved_user_id,
+            )
+
+        self._persona_runtime_cache.pop(thread_id, None)
+        self._thread_users.pop(thread_id, None)
+
     def clear_user_threads(self, user_id: str) -> list[str]:
-        targets = [
-            thread_id
-            for thread_id, owner in self._thread_users.items()
-            if owner == user_id
-        ]
+        if not user_id.strip():
+            raise ValueError("user_id must not be empty")
+
+        if self.shared_state_store is not None:
+            targets = self.shared_state_store.list_user_threads(user_id)
+        else:
+            targets = [
+                thread_id
+                for thread_id, owner in self._thread_users.items()
+                if owner == user_id
+            ]
 
         for thread_id in targets:
+            # 保持既有 clear_thread(thread_id) 调用约定，兼容外部替身和测试桩。
             self.clear_thread(thread_id)
 
         return targets
 
     def clear_all_threads(self) -> None:
-        self._persona_runtime_cache.clear()
-        self._thread_users.clear()
-        self.checkpointer = InMemorySaver()
-        self.graph = self._build_graph()
+        targets = set(self._persona_runtime_cache) | set(self._thread_users)
+        if self.shared_state_store is not None:
+            targets.update(self.shared_state_store.list_all_threads())
+
+        for thread_id in sorted(targets):
+            self.clear_thread(thread_id)
 
     def _state_input(self, state: LLMGraphState) -> LLMGraphInput:
         raw_input = state["input"]

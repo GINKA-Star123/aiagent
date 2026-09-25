@@ -1,0 +1,113 @@
+# V1.2 本地后端基础服务（Redis / Qdrant / Neo4j，Postgres 预留）
+#
+# 一键启动（仅本机可访问）：
+#   docker compose -f deploy/docker-compose.services.yml up -d
+# 含预留 Postgres：
+#   docker compose -f deploy/docker-compose.services.yml --profile reserved up -d
+# 停止 / 连带数据卷清理：
+#   docker compose -f deploy/docker-compose.services.yml down
+#   docker compose -f deploy/docker-compose.services.yml down -v
+#
+# 约定：
+#   - 所有端口只绑定 127.0.0.1，不对外暴露；需要局域网访问时自行改成 0.0.0.0。
+#   - Neo4j 密码取 .env 的 NEO4J_PASSWORD，Postgres 密码取 POSTGRES_PASSWORD，
+#     两个变量都已在 .env.example 与 docs/config-reference.md 中登记，
+#     因此本文件不会给 scripts/check_config_sync.py 引入新的配置项。
+#   - 应用侧的 QDRANT_HOST/QDRANT_PORT/NEO4J_URL/REDIS_URL 保持默认的 localhost 即可。
+name: aiagent-services
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: aiagent-redis
+    restart: unless-stopped
+    # AOF 持久化：任务队列、通话状态、执行状态镜像都依赖 Redis 不丢数据。
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - aiagent_services_net
+
+  qdrant:
+    image: qdrant/qdrant:v1.14.1
+    container_name: aiagent-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    # 官方镜像未内置 curl/wget，因此不设置容器级 healthcheck；
+    # 探活由宿主机完成：curl http://127.0.0.1:6333/readyz 或 diagnostics 的 Qdrant 检查项。
+    networks:
+      - aiagent_services_net
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: aiagent-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-aiagent-local-dev}
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1G
+      NEO4J_server_memory_pagecache_size: 512m
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    ulimits:
+      nofile:
+        soft: 40000
+        hard: 40000
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:7474 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - aiagent_services_net
+
+  # 预留服务：当前 Python 代码不依赖 Postgres，仅在需要时用 --profile reserved 启动。
+  postgres:
+    profiles: ["reserved"]
+    image: postgres:16-alpine
+    container_name: aiagent-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aiagent
+      POSTGRES_USER: aiagent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aiagent-local-dev}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiagent -d aiagent"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - aiagent_services_net
+
+volumes:
+  redis_data:
+  qdrant_data:
+  neo4j_data:
+  neo4j_logs:
+  postgres_data:
+
+networks:
+  aiagent_services_net:
+    driver: bridge

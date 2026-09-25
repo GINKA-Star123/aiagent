@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import logging
@@ -30,6 +30,7 @@ from aiagent.perception.voice_state_machine import (
 )
 from aiagent.schemas.outputs import ResponsePacket
 from aiagent.schemas.voice import VoiceTurnPhase
+from apps.api.shared_state_errors import shared_state_error_response
 from apps.api.response_utils import (
     error_message_response,
     error_response,
@@ -376,6 +377,10 @@ async def voice_realtime_turn(
         return ok_response(**payload)
 
     except Exception as exc:
+        shared_error = shared_state_error_response(exc)
+        if shared_error is not None:
+            return shared_error
+
         failed_metadata = mark_voice_stage_failed(
             metadata,
             "turn",
@@ -443,6 +448,10 @@ async def voice_realtime_interrupt(req: VoiceRealtimeInterruptRequest):
             interrupt_reason,
         )
     except Exception as exc:
+        shared_error = shared_state_error_response(exc)
+        if shared_error is not None:
+            return shared_error
+
         failed_metadata = mark_voice_stage_failed(
             dict(call.metadata),
             "interrupt",
@@ -541,3 +550,6 @@ def _build_live2d_payload(packet: ResponsePacket) -> dict[str, Any]:
             "source": "voice_realtime_fallback",
         },
     )
+
+
+

@@ -1,4 +1,5 @@
 aiagent
 apps
+cloud
 config
 integrations
