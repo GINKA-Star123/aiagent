@@ -1,5 +1,1 @@
-redis>=5.0.0,<6.0.0
-boto3>=1.34.0,<2.0.0
-dependencies = [
-    "langgraph-checkpoint-redis",
-]
+-r requirements.txt

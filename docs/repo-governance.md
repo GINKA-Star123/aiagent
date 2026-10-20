@@ -30,7 +30,7 @@
 > 全新环境 clone 后这些目录不存在是**正常**的，程序首次运行会自动创建。
 >
 > **知识库文档被有意排除**：`data/knowledge/` 不入仓，因此 clone 后知识目录为空。
-> 此时 `tests/rag/test_rag_quality_baseline.py` 会通过 `skipif` 自动跳过（而不是失败），
+> 此时 `tests/rag/test_rag_eval_*.py` 会通过 fixture 的 `pytest.skip` 自动跳过（而不是失败），
 > 文本聊天、Memory、Vision 链路不受影响；需要跑检索评测时，把知识文档放回 `data/knowledge/public/` 即可。
 
 ## 二、`.gitignore` 的两条硬规则

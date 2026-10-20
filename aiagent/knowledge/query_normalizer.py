@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import re
+
 from aiagent.knowledge.character_aliases import CHARACTER_ALIASES
+
+# 匹配"英文作品名"：两个及以上英文单词（如 scarlet dreams / Color Flow）。
+_WORK_NAME_PATTERN = re.compile(
+    r"[A-Za-z][A-Za-z0-9'’&.\-]*(?:\s+[A-Za-z][A-Za-z0-9'’&.\-]*)+"
+)
 
 ALIASES = {
     "天依": "洛天依",
@@ -127,10 +134,39 @@ def expand_domain_terms(query: str) -> str:
     return merged
 
 
+def _looks_like_work_name(query: str) -> bool:
+    """判断查询里是否带着**具体的英文作品名**。
+
+    别名 + 领域词扩展是为"某某是谁"这类问题设计的：一旦命中角色名就会追加
+    二十多个角色词。但当用户其实在问某个作品（例如 scarlet dreams）时，
+    这些扩展词会把真正的关键词稀释掉，检索结果被角色设定片段占满，
+    反而检索不到作品本身。此时应当保留原查询直查。
+    """
+
+    match = _WORK_NAME_PATTERN.search(query)
+    if match is None:
+        return False
+
+    phrase = match.group(0).strip().lower()
+
+    known: set[str] = set()
+    for canonical, variants in CHARACTER_ALIASES.items():
+        known.add(canonical.lower())
+        known.update(str(variant).lower() for variant in variants if variant)
+    known.update(alias.lower() for alias in ALIASES)
+
+    # 已知角色英文名（如 YueZhengling）不算作品名，仍需正常扩展。
+    return phrase not in known
+
+
 def normalize_rag_query(query: str) -> str:
     query = (query or "").strip()
     if not query:
         return ""
+
+    if _looks_like_work_name(query):
+        return query
+
     query = normalize_aliases(query)
     query = expand_domain_terms(query)
     return query.strip()

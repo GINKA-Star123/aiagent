@@ -154,8 +154,11 @@ class HybridRetriever:
             doc = doc_by_id[chunk_id]
             metadata = doc.metadata
             cosine_score = cosine_by_id.get(chunk_id)
+            # 余弦加成必须远小于 RRF 本身的量级（1/(rrf_k+rank) ≈ 0.0164），
+            # 否则纯向量候选会结构性压过 BM25 候选，令 BM25 永远进不了前列，
+            # 英文名、专有名词等精确匹配查询因此失效。
             if cosine_score is not None:
-                score += cosine_score * 0.03
+                score += cosine_score * 0.001
 
             chunks.append(
                 RetrievedChunk(

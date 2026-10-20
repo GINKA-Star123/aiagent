@@ -80,9 +80,11 @@ def collect_settings_env() -> dict[str, str]:
 
 def collect_scanned_env() -> dict[str, str]:
     """从源码里正则扫描直接读取的环境变量，作为兜底发现机制。"""
+
+    SCAN_IGNORED_PARTS = {".venv", ".git", ".github", "__pycache__", "node_modules", "_tmp", "tests"}
     found: dict[str, str] = {}
     for path in PROJECT_ROOT.rglob("*.py"):
-        if any(part in {".venv", "__pycache__", "node_modules", "_tmp"} for part in path.parts):
+        if any(part in SCAN_IGNORED_PARTS for part in path.relative_to(PROJECT_ROOT).parts):
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")
@@ -92,7 +94,7 @@ def collect_scanned_env() -> dict[str, str]:
             found.setdefault(match.group(1), path.relative_to(PROJECT_ROOT).as_posix())
 
     for path in PROJECT_ROOT.rglob("*.ps1"):
-        if any(part in {".venv", "_tmp"} for part in path.parts):
+        if any(part in SCAN_IGNORED_PARTS for part in path.relative_to(PROJECT_ROOT).parts):
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")
@@ -103,7 +105,7 @@ def collect_scanned_env() -> dict[str, str]:
 
     for pattern in ("*.yml", "*.yaml"):
         for path in PROJECT_ROOT.rglob(pattern):
-            if any(part in {".venv", "_tmp", "node_modules"} for part in path.parts):
+            if any(part in SCAN_IGNORED_PARTS for part in path.relative_to(PROJECT_ROOT).parts):
                 continue
             try:
                 text = path.read_text(encoding="utf-8", errors="ignore")
@@ -165,7 +167,9 @@ def main(argv: list[str] | None = None) -> int:
     doc_keys = parse_doc_reference(CONFIG_REFERENCE)
 
     missing_in_env_example = sorted(name for name in declared if name not in env_example_keys)
+    missing_in_cloud = sorted(name for name in declared if name not in cloud_example_keys)
     missing_in_docs = sorted(name for name in declared if name not in doc_keys)
+    failed = bool(missing_in_env_example or missing_in_cloud or missing_in_docs)
     stale_in_env_example = sorted(
         name
         for name in env_example_keys
@@ -177,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
 
     for title, items, show_source in (
         (".env.example 缺失", missing_in_env_example, True),
+        ("cloud.tencent.example.env 缺失", missing_in_cloud, True),
         ("docs/config-reference.md 缺失", missing_in_docs, True),
         (".env.example 可能多余（源码未声明）", stale_in_env_example, False),
     ):
@@ -192,7 +197,6 @@ def main(argv: list[str] | None = None) -> int:
         for name in missing_in_env_example:
             print(f"{name}=")
 
-    failed = bool(missing_in_env_example or missing_in_docs)
     if args.strict and stale_in_env_example:
         failed = True
 

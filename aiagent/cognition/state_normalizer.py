@@ -4,7 +4,7 @@ from aiagent.graphs.graph_model import StateInferenceOutput
 
 class StateNormalizer:
     ALLOWED_EMOTIONS = {"neutral", "happy", "excited", "calm", "angry", "sad"}
-    ALLOWED_INTENTS = {"chat", "comfort", "question", "continuation", "memory", "request", "sing"}
+    ALLOWED_INTENTS = {"chat", "comfort", "question", "continuation", "memory", "request", "sing", "identity"}
     ALLOWED_TOPICS = {"general", "music", "study", "work", "emotion", "profile", "stream"}
     ALLOWED_MOTIONS = {"idle", "soft_idle", "smile_nod", "thinking", "excited_wave", "serious_still"}
 

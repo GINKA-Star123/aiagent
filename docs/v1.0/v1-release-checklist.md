@@ -46,8 +46,8 @@
 
 ## RAG Baseline
 
-- [ ] `tests\fixtures\rag_eval\cases.jsonl` 已固定为 V1.0 基线评测集。
-- [ ] `tests\rag` 在存在 `data/knowledge/public` 时可以运行并达到当前阈值。
+- [ ] `tests\fixtures\rag_eval\cases.jsonl`、`chunk_cases.jsonl` 已固定为 V2 全链路评测集。
+- [ ] `tests\rag` 在存在 `data/knowledge/public` 时可以运行并达到当前 ratchet 阈值。
 - [ ] 知识库文档来源、版本和更新时间已记录。
 - [ ] embedding 模型、embedding 维度、Qdrant collection 配置一致。
 - [ ] embedding 模型或维度发生变化时，已重建对应 collection 或索引。

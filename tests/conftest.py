@@ -52,6 +52,7 @@ def _force_mock_env() -> None:
         "RATE_LIMIT_ENABLED": "false",
         "INFLIGHT_LIMIT_ENABLED": "false",
         "REDIS_URL": "",
+        "EXECUTION_STATE_MODE": "local",
         "MEMORY_ENABLE_GRAPH": "false",
         "MEMORY_RESET_VECTOR_STORE": "false",
         "RAG_EMBEDDING_PROVIDER": "huggingface",

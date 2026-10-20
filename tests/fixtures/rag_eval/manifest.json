@@ -1,0 +1,57 @@
+{
+  "schema_version": "rag-eval-v2",
+  "dataset_version": "2026-10-19.v3-rebuild",
+  "knowledge_dir": "data/knowledge/public",
+  "corpus": {
+    "file_count": 256,
+    "total_bytes": 1687570,
+    "sha256": "b397bb1182ec6ac18e8cfb1faaf1b20dbf9f46f1a595906f120e6133666e2c47",
+    "hash_algorithm": "sha256 over sorted(relative_path + NUL + size + NUL + bytes)"
+  },
+  "query_cases": {
+    "file": "cases.jsonl",
+    "total": 120,
+    "suites": {
+      "smoke": 30,
+      "core": 54,
+      "hard": 36
+    },
+    "categories": {
+      "character": 40,
+      "setting": 32,
+      "song": 12,
+      "relation": 12,
+      "group": 6,
+      "fan_chant": 6,
+      "mixed": 6,
+      "negative": 6
+    },
+    "difficulties": {
+      "easy": 30,
+      "normal": 54,
+      "hard": 36
+    },
+    "stages": [
+      "retrieval",
+      "rerank",
+      "injection",
+      "prompt",
+      "end_to_end"
+    ]
+  },
+  "chunk_cases": {
+    "file": "chunk_cases.jsonl",
+    "total": 12,
+    "stages": [
+      "chunking",
+      "index"
+    ]
+  },
+  "thresholds_example": "thresholds.example.json",
+  "engine": "aiagent.knowledge.evaluation",
+  "cli": "python -m aiagent.knowledge.evaluation.cli",
+  "notes": [
+    "Rebuilt from current 256-doc knowledge corpus, not inherited from the previous 88-case set.",
+    "No baseline has been measured for this v3 dataset yet."
+  ]
+}

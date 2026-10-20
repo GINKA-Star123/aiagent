@@ -32,7 +32,7 @@ def _make_repo(root: Path, *, with_ci: bool = True, with_shared_state: bool = Tr
     _write(root / "tests" / "unit" / "test_a.py", "def test_one():\n    assert True\n\ndef test_two():\n    assert True\n")
     _write(root / "tests" / "fixtures" / "rag_eval" / "cases.jsonl", '{"case_id":"a"}\n{"case_id":"b"}\n')
     _write(
-        root / "tests" / "rag" / "test_rag_quality_baseline.py",
+        root / "tests" / "rag" / "test_rag_eval_retrieval.py",
         "def test_x():\n    assert summary.pass_rate >= 0.95\n    assert summary.recall_at_1 >= 0.78\n",
     )
     _write(root / "aiagent" / "graphs" / "llm_graph.py", "checkpointer = thread_registry = None\n")

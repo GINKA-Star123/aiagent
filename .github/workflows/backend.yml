@@ -1,0 +1,42 @@
+name: Backend
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EXECUTION_STATE_MODE: local
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      SDL_AUDIODRIVER: dummy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.8"
+          python-version: "3.12"
+      - run: uv lock --check
+      - run: uv sync --locked --extra dev
+      - name: Check requirements export drift
+        run: |
+          uv export --locked --no-dev --no-emit-project --output-file requirements.txt
+          git diff --exit-code -- requirements.txt
+          python -c "from pathlib import Path; assert Path('requirements-cloud.txt').read_text(encoding='utf-8').strip() == '-r requirements.txt', 'requirements-cloud.txt must reference requirements.txt'"
+      - run: |
+          uv pip check
+          uv run --locked python scripts/check_dependency_runtime.py
+          uv run --locked python scripts/check_config_sync.py
+          uv run --locked python scripts/check_repo_hygiene.py
+          uv run --locked ruff check aiagent apps/core apps/api apps/worker cloud config integrations scripts tests
+      - run: uv run --locked pytest tests/unit -m "not integration" -q
+      - run: uv run --locked pytest tests/api tests/smoke -m "not integration" -q
+      - run: docker build -f deploy/Dockerfile.api -t aiagent-api:v12-ci .
+      - run: docker build -f deploy/Dockerfile.worker -t aiagent-worker:v12-ci .
+      - name: Verify container runtime
+        timeout-minutes: 5
+        run: |
+          for image in aiagent-api:v12-ci aiagent-worker:v12-ci; do
+            docker run --rm -i --network none --entrypoint python "$image" - < scripts/check_container_runtime.py
+          done

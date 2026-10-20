@@ -16,7 +16,7 @@ class PresenceStore:
         return f"{self.prefix}:presence:session:{safe_user_id}"
     
     async def get_snapshot(self,user_id:str,username:str ="guest") -> SessionSnapshot:
-        redis = get_redis_client()
+        redis = await get_redis_client()
         if redis is None:
             return SessionSnapshot(user_id=user_id,username=username)
         

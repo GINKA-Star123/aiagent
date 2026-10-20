@@ -1,0 +1,30 @@
+{
+  "_comment": "Targets only. The v3 dataset has no measured baseline yet; run the baseline first, then set ratchet thresholds.",
+  "smoke": {
+    "min_pass_rate": 0.7,
+    "min_retrieval_recall": 0.75,
+    "min_rerank_recall": 0.65,
+    "min_rerank_top1": 0.5,
+    "min_injection_accuracy": 0.75,
+    "min_prompt_pass_rate": 0.7,
+    "min_chunk_pass_rate": 1
+  },
+  "core": {
+    "min_pass_rate": 0.6,
+    "min_retrieval_recall": 0.7,
+    "min_rerank_recall": 0.6,
+    "min_rerank_top1": 0.4,
+    "min_injection_accuracy": 0.65,
+    "min_prompt_pass_rate": 0.6,
+    "min_chunk_pass_rate": 1
+  },
+  "hard": {
+    "min_pass_rate": 0.45,
+    "min_retrieval_recall": 0.55,
+    "min_rerank_recall": 0.45,
+    "min_rerank_top1": 0.3,
+    "min_injection_accuracy": 0.5,
+    "min_prompt_pass_rate": 0.5,
+    "min_chunk_pass_rate": 1
+  }
+}

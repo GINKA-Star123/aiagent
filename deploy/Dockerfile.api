@@ -1,28 +1,44 @@
-FROM python:3.11-slim
+FROM python:3.12-slim-trixie AS system-deps
+
+ARG DEBIAN_MIRROR=https://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR=https://deb.debian.org/debian-security
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV PIP_NO_CACHE_DIR=1
-
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        curl \
-        ffmpeg \
-        libgl1 \
-        libglib2.0-0 \
-        libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    sed -i \
+        -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+        -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+        /etc/apt/sources.list.d/debian.sources; \
+    apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 \
+        -o APT::Update::Error-Mode=any update; \
+    apt-get -o Acquire::Retries=3 -o Acquire::https::Timeout=30 \
+        install -y --no-install-recommends \
+        curl ffmpeg libgl1 libglib2.0-0 libgomp1 libportaudio2; \
+    rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt requirements-cloud.txt pyproject.toml ./
+FROM system-deps AS dependencies
+COPY --from=ghcr.io/astral-sh/uv:0.11.8 /uv /usr/local/bin/uv
+ENV UV_PYTHON_DOWNLOADS=never
+ENV UV_LINK_MODE=copy
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-install-project
 
-RUN pip install --upgrade pip \
-    && pip install -r requirements.txt \
-    && pip install -r requirements-cloud.txt
-
-COPY . .
-
+FROM system-deps AS runtime
+ENV PATH="/app/.venv/bin:${PATH}"
+ENV HOME=/app/data
+COPY --from=dependencies /app/.venv /app/.venv
+COPY aiagent/ ./aiagent/
+COPY apps/core/ ./apps/core/
+COPY apps/api/ ./apps/api/
+COPY apps/worker/ ./apps/worker/
+COPY cloud/ ./cloud/
+COPY config/ ./config/
+COPY integrations/ ./integrations/
+RUN useradd --uid 10001 --create-home app \
+    && mkdir -p /app/data && chown app:app /app/data
+USER app
 EXPOSE 8000
-
-CMD ["sh", "-c", "uvicorn apps.api.http_server:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-2} --proxy-headers --forwarded-allow-ips '*'"]
+CMD ["sh", "-c", "exec uvicorn apps.api.http_server:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-2} --proxy-headers --forwarded-allow-ips \"${API_TRUSTED_PROXIES:-127.0.0.1,::1}\""]

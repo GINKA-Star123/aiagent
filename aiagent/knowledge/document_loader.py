@@ -342,7 +342,12 @@ class DocumentLoader:
         """
 
         file_key = path.stem.strip().lower()
-        character = CHARACTER_FILE_KEYS.get(file_key, "")
+        title = self._infer_title(text, path.stem)
+        character = (
+            CHARACTER_FILE_KEYS.get(file_key, "")
+            or self._character_from_title(title)
+            or self._match_character_by_text(text)
+        )
 
         if not character:
             character = self._match_character_by_text(text)
@@ -372,17 +377,50 @@ class DocumentLoader:
             "doc_kind": self._infer_doc_kind(text=text, character=character),
         }
 
-    def _match_character_by_text(self, text: str) -> str:
-        """文件名无法识别时，用正文里的角色标识兜底判断。"""
-
-        head = text[:2000]
+    def _character_from_title(self, title: str) -> str:
+        """优先用文档标题判断角色，避免相关人士列表先命中别人。"""
+        normalized = str(title or "").strip().lstrip("#").strip()
+        if not normalized:
+            return ""
 
         for canonical, variants in CHARACTER_ALIASES.items():
-            for variant in variants:
-                if variant and variant in head:
+            for variant in (canonical, *variants):
+                if variant and normalized == variant:
+                    return canonical
+      
+        for canonical, variants in CHARACTER_ALIASES.items():
+            for variant in (canonical, *variants):
+                if variant and normalized.startswith(variant):
                     return canonical
 
         return ""
+
+    def _match_character_by_text(self, text: str) -> str:
+        """正文兜底：返回最早出现的角色，而不是 alias 表顺序的第一个。"""
+
+        head = text[:2000]
+        best_character = ""
+        best_index = len(head) + 1
+        best_variant_length = 0
+
+        for canonical, variants in CHARACTER_ALIASES.items():
+            for variant in (canonical, *variants):
+                if not variant:
+                    continue
+
+                index = head.find(variant)
+                if index < 0:
+                    continue
+
+                if index < best_index or (
+                    index == best_index
+                    and len(variant) > best_variant_length
+                ):
+                    best_character = canonical
+                    best_index = index
+                    best_variant_length = len(variant)
+
+        return best_character
 
     def _infer_source_partition(self, source_path: str) -> str:
         lowered = source_path.replace("\\", "/").lower()

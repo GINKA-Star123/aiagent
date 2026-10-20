@@ -1,4 +1,4 @@
-"""V1.2 基线采集：把"现在到底是什么状态"变成一条命令 + 一份机器可读报告。
+r"""V1.2 基线采集：把"现在到底是什么状态"变成一条命令 + 一份机器可读报告。
 
 用法：
     .venv\Scripts\python.exe scripts\v1_2_baseline.py
@@ -170,7 +170,14 @@ def collect_agent_quality(root: Path) -> dict[str, Any]:
     cases_file = tests_dir / "fixtures" / "rag_eval" / "cases.jsonl"
     rag_cases = len([line for line in read_text(cases_file).splitlines() if line.strip()])
 
-    baseline_test = read_text(tests_dir / "rag" / "test_rag_quality_baseline.py")
+    rag_tests_dir = tests_dir / "rag"
+    baseline_test = (
+        "\n".join(
+            read_text(path) for path in sorted(rag_tests_dir.glob("test_*.py"))
+        )
+        if rag_tests_dir.exists()
+        else ""
+    )
     thresholds = {
         name: float(value)
         for name, value in re.findall(

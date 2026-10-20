@@ -12,6 +12,7 @@ class PlannerNormalizer:
         "memory_ack",
         "request_handle",
         "sing",
+        "identity",
     }
 
     ALLOWED_EMOTIONS = {

@@ -1,17 +1,25 @@
 # scripts/test_rag_quality_report.ps1
+# Complete RAG evaluation: chunking -> index -> retrieval -> rerank -> injection -> prompt.
 param(
-    [string]$Python = ".\.venv\Scripts\python.exe",
+    [ValidateSet("smoke", "core", "hard", "all")]
+    [string]$Suite = "all",
     [string]$Cases = "tests\fixtures\rag_eval\cases.jsonl",
+    [string]$ChunkCases = "tests\fixtures\rag_eval\chunk_cases.jsonl",
     [string]$KnowledgeDir = "data\knowledge\public",
-    [string]$ReportDir = "data\cache\knowledge\reports",
+    [string]$ReportDir = "data\cache\knowledge\reports\rag_eval_v2",
     [string]$ReportPrefix = "rag_eval",
-    [double]$MinPassRate = 0.75,
-    [double]$MinRecallAt1 = 0.40,
-    [double]$MinRecallAt3 = 0.80,
-    [double]$MinMrr = 0.55,
+    [string]$Python = ".venv/Scripts/python.exe",
+    [double]$MinPassRate = -1,
+    [double]$MinRetrievalRecall = -1,
+    [double]$MinRerankRecall = -1,
+    [double]$MinRerankTop1 = -1,
+    [double]$MinInjectionAccuracy = -1,
+    [double]$MinPromptPassRate = -1,
+    [double]$MinChunkPassRate = -1,
     [switch]$Required,
     [switch]$ShowResults,
-    [switch]$PrintMarkdown
+    [switch]$PrintMarkdown,
+    [switch]$NoChunkAudit
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,13 +31,14 @@ if (-not (Test-Path -LiteralPath $Python)) {
     $Python = "python"
 }
 
-if (-not (Test-Path -LiteralPath $Cases)) {
-    throw "RAG eval cases file not found: $Cases"
-}
+function Resolve-RequiredPath {
+    param([string]$Path, [string]$Label)
 
-if (-not (Test-Path -LiteralPath $KnowledgeDir)) {
-    $message = "RAG knowledge directory not found: $KnowledgeDir"
+    if (Test-Path -LiteralPath $Path) {
+        return
+    }
 
+    $message = "$Label not found: $Path"
     if ($Required) {
         throw $message
     }
@@ -39,43 +48,60 @@ if (-not (Test-Path -LiteralPath $KnowledgeDir)) {
     exit 0
 }
 
-$args = @(
-    "-m", "aiagent.knowledge.rag_eval",
+Resolve-RequiredPath -Path $Cases -Label "RAG query cases"
+if (-not $NoChunkAudit) {
+    Resolve-RequiredPath -Path $ChunkCases -Label "RAG chunk cases"
+}
+Resolve-RequiredPath -Path $KnowledgeDir -Label "RAG knowledge directory"
+
+$Arguments = @(
+    "-m", "aiagent.knowledge.evaluation.cli",
+    "--suite", $Suite,
     "--cases", $Cases,
+    "--chunk-cases", $ChunkCases,
     "--knowledge-dir", $KnowledgeDir,
-    "--min-pass-rate", [string]$MinPassRate,
-    "--min-recall-at-1", [string]$MinRecallAt1,
-    "--min-recall-at-3", [string]$MinRecallAt3,
-    "--min-mrr", [string]$MinMrr,
-    "--show-category-summary",
-    "--write-report",
     "--report-dir", $ReportDir,
-    "--report-prefix", $ReportPrefix
+    "--report-prefix", $ReportPrefix,
+    "--write-report",
+    "--show-category-summary",
+    "--min-pass-rate", [string]$MinPassRate,
+    "--min-retrieval-recall", [string]$MinRetrievalRecall,
+    "--min-rerank-recall", [string]$MinRerankRecall,
+    "--min-rerank-top1", [string]$MinRerankTop1,
+    "--min-injection-accuracy", [string]$MinInjectionAccuracy,
+    "--min-prompt-pass-rate", [string]$MinPromptPassRate,
+    "--min-chunk-pass-rate", [string]$MinChunkPassRate
 )
 
 if ($ShowResults) {
-    $args += "--show-results"
+    $Arguments += "--show-results"
 }
 
 if ($PrintMarkdown) {
-    $args += "--print-markdown"
+    $Arguments += "--print-markdown"
 }
 
-Write-Host "== RAG Quality Report ==" -ForegroundColor Cyan
+if ($NoChunkAudit) {
+    $Arguments += "--no-chunk-audit"
+}
+
+Write-Host "== RAG Evaluation ==" -ForegroundColor Cyan
+Write-Host "Suite       : $Suite"
 Write-Host "Cases       : $Cases"
+Write-Host "ChunkCases  : $ChunkCases"
 Write-Host "KnowledgeDir: $KnowledgeDir"
 Write-Host "ReportDir   : $ReportDir"
 Write-Host ""
 
-& $Python @args
+& $Python @Arguments
 
 if ($LASTEXITCODE -ne 0) {
-    throw "RAG quality report failed with exit code $LASTEXITCODE"
+    throw "RAG evaluation failed with exit code $LASTEXITCODE"
 }
 
 Write-Host ""
-Write-Host "RAG quality report passed." -ForegroundColor Green
+Write-Host "RAG evaluation passed." -ForegroundColor Green
 Write-Host "Report files:"
-Write-Host "- $ReportDir\$ReportPrefix`_report.json"
-Write-Host "- $ReportDir\$ReportPrefix`_report.md"
-Write-Host "- $ReportDir\$ReportPrefix`_failures.jsonl"
+Write-Host ("- " + $ReportDir + "/" + $ReportPrefix + "_report.json")
+Write-Host ("- " + $ReportDir + "/" + $ReportPrefix + "_report.md")
+Write-Host ("- " + $ReportDir + "/" + $ReportPrefix + "_failures.jsonl")

@@ -1,407 +1,270 @@
-# RAG 质量评测
+# RAG 全链路质量评测
 
-本文档说明 AIAgent V1.1 阶段 RAG 检索质量评测的目标、入口、指标、报告结构和失败处理方式。
+本文档说明 AIAgent V2 RAG 评测体系的目标、阶段、数据规范、指标、执行入口和失败处理方式。
 
-RAG 评测只验证“检索是否能稳定召回正确知识”，不直接评测最终 LLM 回复文案。LLM 回复质量需要另行通过 persona 回归、回答事实性检查和人工验收评估。
+旧版只测“文档是否召回”的 32 条 baseline 已废弃；旧的 aiagent/knowledge/rag_eval*.py、tests/rag/test_rag_quality_baseline.py 和旧 cases 已删除。
+当前唯一实现是 aiagent/knowledge/evaluation/，数据集在 tests/fixtures/rag_eval/。
 
-## 评测目标
+## 一、评测范围
 
-RAG 质量评测用于回答以下问题：
+本体系覆盖一条完整离线链路：
 
-- 用户问题能否召回正确知识文档。
-- 正确文档是否出现在足够靠前的位置。
-- 别名、简称、角色关系等中文查询是否能被正确扩展。
-- 不相关或禁止来源是否被错误召回。
-- 文档、chunk、query normalizer、reranker 改动后，检索质量是否退化。
+1. 文档加载与 chunk 切分
+2. 索引构建与 metadata 完整性
+3. BM25 粗召回 retrieval
+4. SimpleReranker 重排 rerank
+5. 置信度与注入决策 injection
+6. 最终 prompt context、citations 与长度约束 prompt
 
-当前 baseline 默认使用 BM25-only 评测管线，目的是让质量基线不依赖 embedding 模型、FAISS 缓存或外部网络。真实 hybrid/vector/reranker 质量可以在后续阶段增加独立 baseline。
+不包含：
 
-## 当前可用入口
+- 最终 LLM 回复文案质量
+- groundedness / faithfulness 的 LLM judge
+- 真实 embedding / FAISS / hybrid 检索质量
+- 多轮改写与指代消解
 
-当前仓库已有 Python CLI，可以直接运行基础 RAG baseline。
+这些需要单独的答案级或在线评测。
 
-```powershell
-cd F:\aiagent
-.\.venv\Scripts\python.exe -m aiagent.knowledge.rag_eval `
-  --cases tests\fixtures\rag_eval\cases.jsonl `
-  --knowledge-dir data\knowledge\public `
-  --show-results
-```
+## 二、为什么替换旧体系
 
-如果只需要在测试体系中运行现有 baseline：
+旧体系只有 retrieval 一段，且用例绑定旧英文文件名，知识库换成中文文档后整体失真。新体系解决三个问题：
 
-```powershell
-cd F:\aiagent
-.\.venv\Scripts\python.exe -m pytest -q tests\rag -p no:cacheprovider
-```
+1. 每段独立判定：chunk/index 失败不会被误判成 reranker 问题。
+2. 注入决策可测：低相关、负例、citation 来源、prompt 长度都能单独失败。
+3. 用例与语料版本绑定：manifest 记录 256 个文件的 sha256，换语料不会拿旧分数比较。
 
-`tests\rag` 依赖 `data\knowledge\public`。如果该目录不存在，当前测试会按条件跳过；这只表示本地没有知识库样本，不表示生产 RAG 质量已经通过。
+## 三、代码结构
 
-## 推荐脚本入口
+| 路径 | 作用 |
+| --- | --- |
+| aiagent/knowledge/evaluation/models.py | 用例、阶段结果、报告模型 |
+| aiagent/knowledge/evaluation/dataset.py | JSONL 加载、路径/术语校验、语料指纹 |
+| aiagent/knowledge/evaluation/pipeline.py | BM25-only 评测管线（NullVectorStore） |
+| aiagent/knowledge/evaluation/runner.py | chunk/index/retrieval/rerank/injection/prompt 判定 |
+| aiagent/knowledge/evaluation/report.py | JSON / Markdown / failures 报告 |
+| aiagent/knowledge/evaluation/cli.py | 命令行入口 |
+| tests/fixtures/rag_eval/cases.jsonl | 120 条查询级用例（smoke 30 / core 54 / hard 36） |
+| tests/fixtures/rag_eval/chunk_cases.jsonl | 12 条 chunk 级用例 |
+| tests/fixtures/rag_eval/manifest.json | 版本、语料指纹、规模 |
+| tests/rag/test_rag_eval_*.py | pytest 契约测试 |
 
-V1.1 报告化优化完成后，建议提供以下脚本入口：
+## 四、数据规范
 
-```powershell
-cd F:\aiagent
-powershell -ExecutionPolicy Bypass -File scripts\test_rag_quality_report.ps1
-```
+查询用例字段：
 
-发布前阻塞式检查建议使用：
+- case_id：全集唯一
+- suite：smoke / core / hard
+- category：character / setting / song / fan_chant / group / relation / mixed / negative
+- query：用户原始问法
+- difficulty：easy / normal / hard
+- tags：诊断标签
+- stages：本用例要跑的阶段
+- retrieval：expected / required / forbidden 文档、内容词、top_k、max_rank
+- rerank：expected top1、expected sections、min_section_hits
+- injection：should_inject、allowed_levels、allowed_statuses、citation 范围与来源
+- prompt：must_contain、must_not_contain、required_terms、max_chars、expect_empty
+- note：备注
 
-```powershell
-cd F:\aiagent
-powershell -ExecutionPolicy Bypass -File scripts\test_rag_quality_report.ps1 -Required
-```
+chunk 用例字段：
 
-脚本建议行为：
+- source_path：被检查文档
+- expected_character / expected_doc_kind
+- required_metadata：必须存在的 metadata 键
+- required_alias / required_search_alias
+- required_section：至少一个 chunk 包含的 section 标题
+- must_keep_together：每组词必须落在同一个 chunk
+- min_chunks / max_chunks
+- min_chunk_chars / max_chunk_chars
+- forbidden_terms
 
-- 检查 `tests\fixtures\rag_eval\cases.jsonl` 是否存在。
-- 检查 `data\knowledge\public` 是否存在。
-- 默认知识库不存在时跳过。
-- 使用 `-Required` 时，知识库不存在直接失败。
-- 执行 `python -m aiagent.knowledge.rag_eval`。
-- 输出 JSON、Markdown 和 failures JSONL 报告。
+详细字段说明见 tests/fixtures/rag_eval/README.md。
 
-## 默认输入
+## 五、判定语义
 
-评测集：
+retrieval：
 
-```text
-tests/fixtures/rag_eval/cases.jsonl
-```
+1. forbidden_source_paths 任意命中最终 top-k 即失败。
+2. required_source_paths 必须全部出现在粗召回候选集。
+3. expected_source_paths 必须出现在粗召回候选集。
+4. max_rank 留给 rerank 判定，retrieval 只记录 coarse_best_rank。
 
-知识库目录：
+rerank：
 
-```text
-data/knowledge/public
-```
+1. 若配置 expected_top1_source_paths，最终第 1 位必须命中其中之一。
+2. 若配置 expected_sections，top-k 中至少 min_section_hits 个 chunk 包含 section。
+3. expected_content_terms 必须全部出现在 top-k 内容里。
+4. 最终 rank 仍不得超过 max_rank。
+5. forbidden_source_paths 在最终 top-k 再检查一次。
 
-临时索引和报告建议输出到：
+injection：
 
-```text
-data/cache/knowledge/
-```
+1. should_inject 必须匹配。
+2. confidence.level 必须在 allowed_levels。
+3. confidence.status 必须在 allowed_statuses。
+4. citation 数量在 min/max 之间。
+5. required_citation_sources 必须出现，forbidden_citation_sources 不能出现。
 
-该目录属于运行缓存，不应作为源码提交。
+prompt：
 
-## 评测集规范（V1.1）
+1. expect_empty=true 时，上下文必须是“无相关知识”。
+2. 否则检查 must_contain、must_not_contain、required_terms、forbidden_terms、max_chars。
 
-### 字段
+end_to_end：
 
-| 字段 | 必填 | 说明 |
+本用例声明的所有 stage 全部通过。
+
+## 六、指标
+
+| 指标 | 含义 |
+| --- | --- |
+| pass_rate | end_to_end 通过率 |
+| retrieval_recall | 正例中正确文档进入粗召回候选集的比例 |
+| retrieval_mrr | 正例中正确文档在粗召回里的排名倒数均值 |
+| rerank_recall | 正例中正确文档进入最终 top-k 的比例 |
+| rerank_mrr | 正例中正确文档最终排名的倒数均值 |
+| rerank_top1_accuracy | 配置 top1 期望的正例中，top1 命中比例 |
+| injection_accuracy | injection stage 通过率 |
+| prompt_pass_rate | prompt stage 通过率 |
+| chunk_pass_rate | chunk_global + chunk 用例通过率 |
+| index_audit | 索引结构契约 |
+
+## 七、执行流程
+
+所有命令在 F:\aiagent 下执行。
+
+### 1. 记录基线
+
+脚本默认阈值 -1（不启用），先记录：
+
+    powershell -ExecutionPolicy Bypass -File scripts/test_rag_quality_report.ps1 -Suite smoke -ReportPrefix rag_eval_smoke
+
+然后：
+
+    powershell -ExecutionPolicy Bypass -File scripts/test_rag_quality_report.ps1 -Suite core -ReportPrefix rag_eval_core
+    powershell -ExecutionPolicy Bypass -File scripts/test_rag_quality_report.ps1 -Suite hard -ReportPrefix rag_eval_hard
+    powershell -ExecutionPolicy Bypass -File scripts/test_rag_quality_report.ps1 -Suite all -ReportPrefix rag_eval_all
+
+报告目录：
+
+    data/cache/knowledge/reports/rag_eval_v2/
+
+每套三个文件：
+
+    rag_eval_smoke_report.json
+    rag_eval_smoke_report.md
+    rag_eval_smoke_failures.jsonl
+
+### 2. 检查报告
+
+    Get-Content data/cache/knowledge/reports/rag_eval_v2/rag_eval_smoke_report.md -Encoding UTF8
+
+失败样例：
+
+    Get-Content data/cache/knowledge/reports/rag_eval_v2/rag_eval_smoke_failures.jsonl -Encoding UTF8 | ForEach-Object { $_ | ConvertFrom-Json } | Select-Object kind, case_id, error | Format-Table -AutoSize
+
+### 3. 设置门禁
+
+第一次基线后，阈值先取“基线 - 0.02”，防止退化；确认提升后再抬。示例：
+
+    powershell -ExecutionPolicy Bypass -File scripts/test_rag_quality_report.ps1 -Suite smoke -ReportPrefix rag_eval_smoke -MinPassRate 0.50 -MinRetrievalRecall 0.60 -MinRerankRecall 0.55 -MinRerankTop1 0.35 -MinInjectionAccuracy 0.60 -MinPromptPassRate 0.55 -MinChunkPassRate 0.90
+
+阈值模板：
+
+    tests/fixtures/rag_eval/thresholds.example.json
+
+模板是目标值，不是当前基线。
+
+### 4. pytest
+
+    .venv/Scripts/python.exe -m pytest -q tests/rag -p no:cacheprovider
+
+默认质量阈值为 0.0，只验证机制；要启用质量门禁，设置环境变量：
+
+    $env:RAG_EVAL_MIN_CHUNK_PASS_RATE="0.90"
+    $env:RAG_EVAL_MIN_RETRIEVAL_RECALL="0.60"
+    $env:RAG_EVAL_MIN_RERANK_RECALL="0.55"
+    $env:RAG_EVAL_MIN_RERANK_TOP1="0.35"
+    $env:RAG_EVAL_MIN_INJECTION_ACCURACY="0.60"
+    $env:RAG_EVAL_MIN_PROMPT_PASS_RATE="0.55"
+    $env:RAG_EVAL_MIN_PASS_RATE="0.50"
+    .venv/Scripts/python.exe -m pytest -q tests/rag -p no:cacheprovider
+
+### 5. 整体验收入口
+
+    powershell -ExecutionPolicy Bypass -File scripts/test_all.ps1 -IncludeRag
+
+该入口会执行 tests/rag；只有环境变量阈值和 CLI 阈值都满足时才应视为通过。
+
+## 八、失败归因
+
+| failure code | 归属 | 常见原因 |
 | --- | --- | --- |
-| `case_id` | 是 | 全局唯一；`load_cases()` 会拒绝重复 id 并报出行号 |
-| `category` | 是 | `character` / `setting` / `song` / `fan_chant` / `group` / `relation` / `mixed` / `workflow` / `negative` |
-| `query` | 是 | 用户原始问法（别名、英文标识都按原样写，不做人工归一化） |
-| `expected_source_paths` | 否 | 期望命中的来源文档（相对 `data/knowledge/public`） |
-| `required_source_paths` | 否 | 必须命中的子集（配合 `match_mode: any` 做多文档题） |
-| `forbidden_source_paths` | 否 | 不该命中的文档（负例护栏） |
-| `match_mode` | 否 | `source` / `title` / `term` / `any` |
-| `tags` | 否 | 便于按主题统计（`alias` / `english_id` / `song` / `multi-hop` / `negative` …） |
-| `difficulty` | 否 | `easy` / `normal` / `hard`；报告里按难度分组看通过率 |
-
-### 硬性规则
-
-1. **`case_id` 不得重复**（重复会让 pass_rate / recall / mrr 被同一条用例重复计入）。
-2. 每条用例必须带 `tags` 与 `difficulty`，保证 `tag_counts` / `difficulty_counts` 有分布。
-3. 新增用例优先覆盖：别名（中文简称）、英文标识、跨文档关系（`multi-hop`）、知识库无关（`negative`）。
-4. 负例统一使用 `forbidden_source_paths`，**不要**用"期望为空"的模糊写法。
-
-### 当前基线规模
-
-| 类别 | 条数（目标） |
-| --- | --- |
-| character | 12+ |
-| setting | 3+ |
-| song | 2+ |
-| fan_chant | 2+ |
-| group | 1+ |
-| relation | 2+ |
-| mixed | 3+ |
-| workflow | 2+ |
-| negative | 2+ |
-
-### 与代码的对应关系
-
-| 能力 | 实现位置 |
-| --- | --- |
-| 别名 / 英文标识查询扩展 | `aiagent/knowledge/query_normalizer.py` + `character_aliases.py` |
-| 文档 metadata（角色/主题/来源/可信等级/更新时间） | `aiagent/knowledge/document_loader.py` |
-| 标识参与 BM25 检索 | `aiagent/knowledge/retriever.py`（可检索文本 = 标识头 + 正文） |
-| 评测执行与汇总 | `aiagent/knowledge/rag_eval.py` / `rag_eval_report.py` |
-
-## 推荐报告输出
-
-V1.1 报告化后，默认报告目录建议为：
-
-```text
-data/cache/knowledge/reports
-```
-
-推荐输出文件：
-
-```text
-rag_eval_report.json
-rag_eval_report.md
-rag_eval_failures.jsonl
-```
-
-各文件用途：
-
-| 文件 | 用途 |
-| --- | --- |
-| `rag_eval_report.json` | 机器可读完整报告，适合 CI、回归比对和后续 dashboard |
-| `rag_eval_report.md` | 人工可读报告，适合发布前检查和问题复盘 |
-| `rag_eval_failures.jsonl` | 只包含失败样例，适合定位 query、文档和 chunk 问题 |
-
-## 指标说明
-
-| 指标 | 含义 | 越高越好 |
-| --- | --- | --- |
-| `pass_rate` | 通过 case 数 / 总 case 数 | 是 |
-| `recall_at_1` | 正确结果出现在第 1 位的比例 | 是 |
-| `recall_at_3` | 正确结果出现在前 3 位的比例 | 是 |
-| `mrr` | Mean Reciprocal Rank，正确结果排名倒数的平均值 | 是 |
-| `avg_best_rank` | 通过样例中最佳命中的平均排名 | 否，越低越好 |
-
-默认阈值建议：
-
-| 指标 | 阈值 |
-| --- | ---: |
-| `pass_rate` | `0.75` |
-| `recall_at_1` | `0.40` |
-| `recall_at_3` | `0.80` |
-| `mrr` | `0.55` |
-
-阈值含义：
-
-- `pass_rate` 低，说明整体可用性不足。
-- `recall_at_1` 低，说明首位命中不稳定，最终回答容易引用次优内容。
-- `recall_at_3` 低，说明检索候选池本身质量不足。
-- `mrr` 低，说明正确结果经常排得很靠后。
-
-## Case 格式
-
-每一行是一个 JSON object。
-
-```json
-{
-  "case_id": "yzl_identity",
-  "category": "character",
-  "query": "乐正绫是谁",
-  "expected_source_paths": ["YueZhengling.md"],
-  "expected_titles": [],
-  "expected_terms": ["乐正绫"],
-  "forbidden_source_paths": [],
-  "top_k": 4,
-  "max_rank": 3,
-  "tags": ["profile"],
-  "difficulty": "easy",
-  "note": "角色身份基础召回"
-}
-```
-
-字段说明：
-
-| 字段 | 必填 | 说明 |
-| --- | --- | --- |
-| `case_id` | 是 | 评测样例唯一 ID |
-| `category` | 否 | 分组，例如 `character`、`workflow`、`song`、`negative` |
-| `query` | 是 | 用户查询 |
-| `expected_source_paths` | 否 | 期望召回的来源文件 |
-| `expected_titles` | 否 | 期望召回的标题片段 |
-| `expected_terms` | 否 | 期望命中的关键词 |
-| `forbidden_source_paths` | 否 | 禁止命中的来源文件 |
-| `top_k` | 否 | 检索返回数量 |
-| `max_rank` | 否 | 正确命中允许出现的最晚排名 |
-| `tags` | 否 | 标签，例如 `alias`、`profile`、`relation`、`negative` |
-| `difficulty` | 否 | 难度，例如 `easy`、`normal`、`hard` |
-| `note` | 否 | 备注 |
-
-## 通过规则
-
-一个 case 通过需要满足：
-
-- 没有命中 `forbidden_source_paths`。
-- top hits 中存在期望来源、期望标题或期望关键词。
-- 最佳命中排名不晚于 `max_rank`。
-- 如果配置了 `expected_terms`，命中的内容中至少出现一个期望关键词。
-
-通过匹配优先级：
-
-1. 来源路径匹配 `expected_source_paths`。
-2. 标题匹配 `expected_titles`。
-3. 内容或 preview 匹配 `expected_terms`。
-
-## 失败原因
-
-| reason | 含义 | 常见处理 |
-| --- | --- | --- |
-| `no_expected_hit` | top_k 内没有命中期望来源、标题或关键词 | 检查 query normalizer、文档内容、chunk 切分 |
-| `expected_hit_rank_too_low` | 命中了正确内容，但排名超过 `max_rank` | 检查 reranker、BM25 token、向量召回权重 |
-| `expected_source_matched_but_terms_missing` | 来源命中，但期望关键词缺失 | 检查文档是否缺少关键事实或 chunk 是否切散 |
-| `forbidden_source_matched` | 命中了禁止来源 | 增加负样本，优化别名和消歧策略 |
-
-## Category 建议
-
-建议至少维护以下 category：
-
-| category | 说明 |
-| --- | --- |
-| `character` | 角色身份、设定、关系、别名 |
-| `song` | 歌曲、专辑、代表作 |
-| `workflow` | 直播、producer、互动流程等知识 |
-| `persona` | 当前角色人格相关知识 |
-| `negative` | 不应命中特定来源的负样本 |
-| `mixed` | 多跳或跨文档问题 |
-
-分组指标用于判断退化集中在哪里。例如整体 pass rate 看似正常，但 `character` 分组下降，说明角色设定检索已经变差。
-
-## Tags 建议
-
-建议使用轻量标签辅助后续分析：
-
-| tag | 说明 |
-| --- | --- |
-| `alias` | 别名、简称、昵称 |
-| `profile` | 基础资料 |
-| `relation` | 角色关系 |
-| `fact` | 单事实问答 |
-| `multi-hop` | 多跳或跨文档问题 |
-| `negative` | 负样本 |
-| `freshness` | 对更新时间敏感 |
-
-当前 baseline 可以只按 `category` 汇总；后续报告可继续扩展 tag 汇总。
-
-## Query Normalizer 检查点
-
-当前 RAG query normalizer 应重点覆盖：
-
-- 乐正绫：`阿绫`、`阿綾`
-- 洛天依：`天依`
-- 乐正龙牙：`龙牙`、`龍牙`
-- 徵羽摩柯：`摩柯`
-- 墨清弦：`墨姐`、`清弦`
-- 言和：避免错误扩展为无关词
-
-新增别名时，应同步新增或更新 `tests/fixtures/rag_eval/cases.jsonl` 中的 alias case。
-
-## 低置信策略
-
-RAG 低置信时不应强行把知识注入 prompt。
-
-建议规则：
-
-- 无候选：`should_inject=false`。
-- 只有低分候选：`should_inject=false`。
-- 命中 forbidden source：评测失败。
-- BM25 和 vector 同时强命中：高置信。
-- BM25-only 强命中：中置信，可作为 baseline 允许注入。
-
-接口和 metadata 中建议保留：
-
-```json
-{
-  "should_inject": false,
-  "confidence": {
-    "status": "low_relevance",
-    "level": "low",
-    "reason": "no_reliable_candidate"
-  },
-  "citations": []
-}
-```
-
-## Citations 要求
-
-当 RAG 内容被注入 prompt 时，应生成稳定 citations。
-
-推荐字段：
-
-```json
-{
-  "citation_id": "rag-1",
-  "rank": 1,
-  "chunk_id": "chunk-id",
-  "doc_id": "doc-id",
-  "title": "乐正绫",
-  "source_path": "YueZhengling.md",
-  "source_name": "YueZhengling.md",
-  "score": 0.12,
-  "retrieval_sources": ["bm25", "vector"],
-  "preview": "短摘要"
-}
-```
-
-注意事项：
-
-- 不暴露本机绝对路径。
-- 不返回过长 chunk 原文给客户端展示。
-- 低置信、不注入 prompt 的结果不应生成正式 citations。
-
-## 失败处理流程
-
-当 RAG 评测失败时，建议按顺序排查：
-
-1. 查看 `rag_eval_failures.jsonl` 或 `--show-results` 输出。
-2. 判断失败集中在哪个 `category`。
-3. 如果是 alias 问题，优先检查 `query_normalizer.py`。
-4. 如果正确文档没有进入 top_k，检查文档是否被加载、chunk 是否过短或过散。
-5. 如果正确文档进入但排名靠后，检查 reranker 规则。
-6. 如果命中 forbidden source，增加负样本并检查别名消歧。
-7. 修改后重新运行 RAG baseline。
-
-## 发布要求
-
-涉及以下改动时，必须执行 RAG 评测：
-
-- 修改 `aiagent/knowledge/query_normalizer.py`
-- 修改 `aiagent/knowledge/retriever.py`
-- 修改 `aiagent/knowledge/reranker.py`
-- 修改 `aiagent/knowledge/rag_pipeline.py`
-- 修改知识库文档或 chunk 策略
-- 替换 embedding 模型或 embedding 维度
-- 调整 RAG 注入阈值或低置信策略
-
-推荐发布前命令：
-
-```powershell
-cd F:\aiagent
-.\.venv\Scripts\python.exe -m pytest -q tests\rag -p no:cacheprovider
-```
-
-如果已补齐报告化脚本，则使用：
-
-```powershell
-cd F:\aiagent
-powershell -ExecutionPolicy Bypass -File scripts\test_rag_quality_report.ps1 -Required
-```
-
-如果目标发布暂不承诺真实 RAG 质量，需要在 release checklist 中明确说明：
-
-- RAG baseline 是否跳过。
-- 跳过原因。
-- 当前是否只承诺 mock 主链路。
-- 后续补测时间点。
-
-## 本批次扩容建议
-
-这一轮建议只扩稳定样本，不改阈值：
-
-- alias / identity：`墨姐 -> 墨清弦`、`摩柯 -> 徵羽摩柯`、`ZERO`、`星尘`、`永夜Minus`
-- relation / mixed：`墨清弦 + 苍穹`、`海伊 + 诗岸`
-- 报告观察：继续优先看 `character`、`mixed` 两类的命中位置
-- 负样本：等这一轮稳定后再补，避免过早把 chunk 切分噪音放大成阈值波动
-
-如果某一类开始下滑，先看：
-
-1. `query_normalizer.py`
-2. 文档 chunk 切分
-3. `reranker.py`
-
-- match_mode=source：必须命中 expected_source_paths。
-- match_mode=title：只按标题判断。
-- match_mode=term：只按关键词判断。
-- match_mode=any：允许 source/title/term 任一命中。
-- required_source_paths：关系题必须同时命中的来源集合。
-  
+| no_expected_hit_in_coarse | retrieval | 粗召回候选集没有正确文档，检查 BM25 token、别名、索引 |
+| forbidden_source_matched | retrieval/rerank | 近似名/同名角色抢占 |
+| missing_required_source_paths | retrieval | 多文档题在粗召回里只出现一份 |
+| final_rank_too_low | rerank | 正确文档进入 top-k 但超出 max_rank |
+| top1_source_mismatch | rerank | 正确文档被重排到后面 |
+| section_hits_below_min | rerank/chunk | 基本资料、专辑等 section 没进 top-k |
+| content_terms_missing | rerank | 事实词没有进入上下文 |
+| should_inject_mismatch | injection | 置信度策略过松/过严 |
+| confidence_level_not_allowed | injection | BM25-only 判定为 low 或 none |
+| citation_count_too_low | injection | 注入但无 citation |
+| required_citation_sources_missing | injection | citation 来源不含期望文档 |
+| prompt_term_missing | prompt | 事实词没进入最终上下文 |
+| prompt_not_empty | prompt | 负例仍然注入 |
+| prompt_too_long | prompt | 上下文预算超限 |
+| terms_split | chunk | 姓名/生日/代表色被切到两个 chunk |
+| metadata_missing | chunk | aliases/topic/character 等字段缺失 |
+| invalid_chunk_index | index | chunk_index 缺失或为负数 |
+| chunk_count_mismatch | index | 实际 chunks 与 stats 不一致 |
+
+## 九、加用例
+
+查询用例：
+
+1. 追加到 cases.jsonl，case_id 与 query 在全集唯一。
+2. suite 只能是 smoke/core/hard。
+3. 正例必须有 expected_source_paths；多文档题用 required_source_paths。
+4. expected_content_terms 必须逐字出现在期望文档中。
+5. 负例用 forbidden_source_paths，不写 expected_source_paths。
+6. injection/prompt 期望按真实契约写，不要放宽来让用例通过。
+7. 更新 manifest.json 的 query_cases 统计。
+
+chunk 用例：
+
+1. 追加到 chunk_cases.jsonl，source_path 必须真实存在。
+2. required_section 与 must_keep_together 必须逐字出现在原文。
+3. 更新 manifest.json 的 chunk_cases 统计。
+
+## 十、发布要求
+
+涉及以下改动时，必须跑 smoke + core + hard + all：
+
+- aiagent/knowledge/document_loader.py
+- aiagent/knowledge/retriever.py
+- aiagent/knowledge/reranker.py
+- aiagent/knowledge/query_normalizer.py
+- aiagent/knowledge/character_aliases.py
+- aiagent/knowledge/rag_pipeline.py
+- aiagent/knowledge/rag_confidence.py
+- aiagent/knowledge/rag_citations.py
+- 知识库文档或 chunk 策略
+- embedding 模型或维度
+- 注入阈值或 prompt 格式
+
+发布前至少满足：
+
+1. chunk_pass_rate = 1.0（chunk/index 契约不允许退化）。
+2. smoke 的 retrieval_recall、injection_accuracy、prompt_pass_rate 不低于 ratchet 阈值。
+3. all 的失败用例有明确归因，不允许只调阈值。
+4. 报告中 corpus.sha256 与当前知识库一致。
+
+## 十一、已知限制
+
+- BM25-only：不覆盖 embedding / FAISS / hybrid。
+- injection stage 会重复执行一次 pipeline.inspect。
+- forbidden 检查覆盖整个 top-k，rank 4 也算踩。
+- 内容词是严格子串匹配，不做同义词扩展。
+- chunk topic 受启发式规则影响，chunk 用例不对 topic 做硬断言。
+- 没有 LLM 答案级评测。
+- data/knowledge 不入仓；换语料必须重记基线。

@@ -19,6 +19,7 @@ def test_session_open_contract(api_client, test_user):
     data = assert_json_response(response)
 
     assert_ok_response(data)
+    assert data.get("degraded",False) is False
 
     assert "opening" in data
     assert "presence" in data
