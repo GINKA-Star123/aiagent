@@ -7,7 +7,6 @@ from typing import Any
 from cloud.config import cloud_settings
 from config.settings import settings
 
-
 SENSITIVE_KEY_PARTS = {
     "token",
     "secret",

@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any
-import time
-
 
 import httpx
 
-from cloud.config import cloud_settings
 from apps.api.metrics_store import metrics_store
 from cloud.circuit_breaker import CircuitBreaker
-
+from cloud.config import cloud_settings
 
 _llm_breaker = CircuitBreaker(name="llm", failure_threshold=3, recovery_seconds=30)
 _tts_breaker = CircuitBreaker(name="tts", failure_threshold=3, recovery_seconds=30)
@@ -103,7 +101,7 @@ class GpuServiceClient:
             raise GpuCircuitOpenError(
                 f"GPU LLM circuit breaker is open. Last error: {breaker._last_error}"
             )
-        
+
         if not base_url:
             raise RuntimeError("GPU LLM base url is not configured.")
 
@@ -127,7 +125,7 @@ class GpuServiceClient:
                 )
                 response.raise_for_status()
                 result = response.json()
-            
+
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
             breaker.record_success()
             metrics_store.record_external_service(
@@ -191,7 +189,7 @@ class GpuServiceClient:
                 )
                 response.raise_for_status()
                 result = response.json()
-            
+
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
             breaker.record_success()
             metrics_store.record_external_service(
@@ -200,7 +198,7 @@ class GpuServiceClient:
                 latency_ms=latency_ms,
             )
             return result
-        
+
         except Exception as exc:
             latency_ms = round((time.perf_counter() - started) * 1000, 2)
             breaker.record_failure(str(exc))

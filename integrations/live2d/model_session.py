@@ -183,13 +183,13 @@ class Live2DModelSession:
 
     def _select_model_class(self, prefer_lapp_model: bool):
         if prefer_lapp_model and hasattr(self.live2d, "LAppModel"):
-            return getattr(self.live2d, "LAppModel")
+            return self.live2d.LAppModel
 
         if hasattr(self.live2d, "Model"):
-            return getattr(self.live2d, "Model")
+            return self.live2d.Model
 
         if hasattr(self.live2d, "LAppModel"):
-            return getattr(self.live2d, "LAppModel")
+            return self.live2d.LAppModel
 
         raise RuntimeError("No supported Live2D model class found.")
 

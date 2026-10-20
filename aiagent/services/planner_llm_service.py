@@ -10,6 +10,7 @@ from aiagent.graphs.graph_model import PlannerInferenceOutput
 from config.providers import PlannerProvider
 from config.settings import Settings
 
+
 class PlannerLLMService:
     def __init__(self,settings:Settings) ->None:
         self.settings =settings
@@ -19,17 +20,17 @@ class PlannerLLMService:
         try:
             if self.settings.enable_mock_planner or self.settings.planner_provider == PlannerProvider.MOCK:
                 return self._fallback_plan()
-            
+
             if self.settings.planner_provider ==PlannerProvider.LMSTUDIO:
                 return self._infer_with_lmstudio(system_prompt,user_text)
-            
+
             return self._infer_with_openai(system_prompt,user_text)
-        
+
         except Exception as e:
             self.logger.exception("Planner inference failed: %s", e)
             return self._fallback_plan()
-        
-    
+
+
     def _infer_with_lmstudio(self,system_prompt:str,user_text:str) -> PlannerInferenceOutput:
         payload = {
             "model":self.settings.planner_model,
@@ -56,7 +57,7 @@ class PlannerLLMService:
         data = response.json()
         content = self._extract_content(data)
         return self._parse_output(content)
-    
+
     def _infer_with_openai(self, system_prompt: str, user_text: str) -> PlannerInferenceOutput:
         api_key, base_url = self._resolve_openai_like_config()
 

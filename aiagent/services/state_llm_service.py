@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import logging
 import json
+import logging
 from typing import Any
 
 import httpx
@@ -10,26 +10,27 @@ from aiagent.graphs.graph_model import StateInferenceOutput
 from config.providers import StateProvider
 from config.settings import Settings
 
+
 class StateLLMService:
     def __init__(self,settings: Settings) -> None:
         self.settings = settings
         self.logger = logging.getLogger(self.__class__.__name__)
-        
+
     def infer_state(self,system_prompt:str,user_text:str) -> StateInferenceOutput:
         try:
             if self.settings.enable_mock_state or self.settings.state_provider == StateProvider.MOCK:
                 return self._fallback_state()
-            
+
             if self.settings.state_provider == StateProvider.LMSTUDIO:
                 return self._infer_with_lmstudio(system_prompt,user_text)
-            
+
             return self._infer_with_openai(system_prompt,user_text)
-        
+
         except Exception as e:
             self.logger.error(e)
             return self._fallback_state()
-        
-    
+
+
     def _infer_with_lmstudio(self,system_prompt,user_text) ->StateInferenceOutput:
         payload = {
             "model":self.settings.state_model,
@@ -85,7 +86,7 @@ class StateLLMService:
         data = response.json()
         content = self._extract_content(data)
         return self._parse_output(content)
-        
+
     def _resolve_openai_like_config(self) -> tuple[str,str]:
         if self.settings.state_provider == StateProvider.OPENAI:
             if not self.settings.openai_api_key:
@@ -98,20 +99,20 @@ class StateLLMService:
             return self.settings.siliconflow_api_key, self.settings.siliconflow_base_url
 
         raise ValueError(f"Unsupported state provider: {self.settings.state_provider}")
-    
+
     def _extract_content(self,data: dict[str, Any]) -> str:
         choices = data.get("choices", [])
         if not choices:
             raise RuntimeError(f"No choices found in state response: {data}")
-        
+
         message = choices[0].get("message",{})
         if not message:
             raise RuntimeError(f"No message found in state response: {data}")
-        
+
         content = message.get("content","")
         if not content:
             raise RuntimeError(f"No content found in state response: {data}")
-        
+
         return str(content).strip()
 
     def _parse_output(self, content: str) -> StateInferenceOutput:

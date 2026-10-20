@@ -24,15 +24,15 @@ class ASRListener:
     def transcribe_file(self,audio_path :str) ->str:
         self.logger.info("ASR transcribing file: %s", audio_path)
         return self.asr_client.transcribe(audio_path)
-    
+
     def listen_once(self,record_seconds:int =10) ->str:
         if self.enable_mock_asr or self.asr_provider == "mock":
             self.logger.info("Using mock ASR mode.")
             return self.asr_client.transcribe("mock audio")
-        
+
         if self.recorder is None:
             raise RuntimeError("Microphone recorder is not initialized")
-        
+
         audio_path = self.recorder.record(record_seconds)
         self.logger.info("Microphone recording saved: %s", audio_path)
         return self.asr_client.transcribe(audio_path)

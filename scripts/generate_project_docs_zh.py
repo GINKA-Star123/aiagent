@@ -5,7 +5,6 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-
 ROOT = Path(".")
 INVENTORY_OUT = Path("docs/project-file-inventory.md")
 OVERVIEW_OUT = Path("docs/project-overview-next-stage.md")

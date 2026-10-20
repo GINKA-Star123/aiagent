@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import time
 import asyncio
 import logging
 import os
 import signal
 import socket
+import time
 import traceback
 from typing import Any
 
+from aiagent.common.logger import setup_logger
+from apps.core.runtime_registry import get_runtime
 from cloud.config import cloud_settings
 from cloud.redis_lock import distributed_lock
 from cloud.task_queue import CloudTaskQueue
-from apps.core.runtime_registry import get_runtime
-from aiagent.common.logger import setup_logger
 
 # 与 API 共用同一套日志管线：RequestContextFilter 会把任务携带的 request_id
 # 注入每条日志，JSON 格式下采集系统可直接按 request_id 检索 worker 日志。

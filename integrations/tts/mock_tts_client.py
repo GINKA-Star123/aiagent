@@ -4,11 +4,12 @@ import wave
 from pathlib import Path
 from uuid import uuid4
 
+
 class MockTTSClient:
     def __init__(self, output_dir: str|Path = "data/cache/tts_real") -> None:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     def synthesize(self, text: str) -> str:
         file_path = self.output_dir / f"{uuid4().hex}.wav"
         self._write_beep_wav(file_path)

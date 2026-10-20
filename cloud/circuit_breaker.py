@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from enum import StrEnum
 
+
 class CircuitState(StrEnum):
     OPEN = "open"
     CLOSED = "closed"
@@ -42,27 +43,27 @@ class CircuitBreaker:
     def allow_request(self) -> bool:
         if self._state == CircuitState.CLOSED:
             return True
-        
+
         if self._state == CircuitState.HALF_OPEN:
             return True
-        
+
         if self._opened_at is None:
             return True
-        
+
         if time.time() - self._opened_at >= self.recovery_seconds:
             self._state = CircuitState.HALF_OPEN
             self._success_count  = 0
             return True
-        
+
         return False
-    
+
     def record_success(self) ->None:
         if self._state ==  CircuitState.HALF_OPEN:
             self._success_count += 1
             if self._success_count >= self.half_open_success_threshold:
                 self._close()
-            return 
-        
+            return
+
         self._close()
 
     def record_failure(self,error:str) ->None:
@@ -72,12 +73,12 @@ class CircuitBreaker:
         if self._state == CircuitState.HALF_OPEN:
             self._open()
             return
-    
+
         if self._failure_count >= self.failure_threshold:
             self._open()
             return
-        
-    
+
+
     def snapshot(self) -> CircuitSnapshot:
         return CircuitSnapshot(
             name=self.name,
@@ -88,7 +89,7 @@ class CircuitBreaker:
             last_error = self._last_error,
             allow_request = self.allow_request(),
         )
-    
+
     def _open(self) ->None:
         self._state = CircuitState.OPEN
         self._opened_at = time.time()

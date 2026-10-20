@@ -4,27 +4,28 @@ from datetime import datetime
 
 from aiagent.presence.models import MoodState, PresenceState
 
+
 def choose_presence_state(now:datetime,mood:MoodState) -> PresenceState:
     hour = now.hour
 
     if 2<= hour <6:
         return "sleepy"
-    
+
     elif 6<= hour< 9:
         return "reading"
-    
+
     elif 9<= hour< 12:
         return "focused"
-    
+
     elif 12<= hour<14:
         return "resting"
-    
+
     elif 14<= hour<18:
         return "working"
-    
+
     elif 18<=hour<22:
         return "listening"
-    
+
     elif 22 <= hour or hour < 2:
         if mood.fatigue > 0.55:
             return "sleepy"
@@ -59,14 +60,14 @@ def update_mood_for_time(now:datetime, mood:MoodState) -> MoodState:
 def mood_label(mood:MoodState) ->str:
     if mood.fatigue >0.7:
         return "sleepy"
-    
+
     if mood.energy >0.72 and mood.curiosity >0.7:
         return "bright"
-    
+
     if mood.warmth > 0.72:
         return "warm"
-    
+
     if mood.valence <0.25:
         return "quiet"
-    
+
     return "neutral"

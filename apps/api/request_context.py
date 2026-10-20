@@ -3,7 +3,6 @@ from __future__ import annotations
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 
-
 _request_id: ContextVar[str] = ContextVar(
     "request_id",
     default="",

@@ -14,7 +14,6 @@ from apps.api.request_context import (
     set_request_context,
 )
 
-
 logger = logging.getLogger("aiagent.api.request")
 
 _REQUEST_ID_PATTERN = re.compile(

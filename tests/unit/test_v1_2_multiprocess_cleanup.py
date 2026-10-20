@@ -6,7 +6,6 @@ import pytest
 from aiagent.state.redis_state_store import RedisStateStore
 from aiagent.state.shared_state import ThreadOwnerRecord
 
-
 pytestmark = pytest.mark.integration
 
 

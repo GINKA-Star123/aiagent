@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from aiagent.memory.mem0_memory import MemoryHit
 from aiagent.memory.memory_deduper import MemoryDeduper
 from aiagent.memory.memory_safety import MemorySafetyFilter
-from aiagent.schemas.memory import MemoryStorePlan,MemoryWriteDecision
+from aiagent.schemas.memory import MemoryStorePlan, MemoryWriteDecision
+
 
 class MemoryIntakeService:
     def __init__(
@@ -127,4 +128,4 @@ class MemoryIntakeService:
         return decision.memory_hint.strip()
 
     def _utc_now(self) -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()

@@ -1,7 +1,5 @@
 import logging
 
-from apps.core.capabilities import CapabilityRegistry
-
 from aiagent.brain.agent_core import AgentCore
 from aiagent.brain.dialogue_manager import DialogueManager
 from aiagent.cognition.planner_normalizer import PlannerNormalizer
@@ -23,24 +21,21 @@ from aiagent.graphs.rag_graph import RAGRunner
 from aiagent.graphs.state_graph import StateRunner
 from aiagent.graphs.vision_graph import VisionRunner
 from aiagent.knowledge.document_loader import DocumentLoader
+from aiagent.knowledge.null_rag_pipeline import NullRAGPipeline
 from aiagent.knowledge.rag_pipeline import RAGPipeline
 from aiagent.knowledge.reranker import SimpleReranker
 from aiagent.knowledge.retriever import HybridRetriever
 from aiagent.knowledge.vector_store import LangChainVectorStore
-from aiagent.knowledge.null_rag_pipeline import NullRAGPipeline
 from aiagent.live2d.motion_mapper import Live2DMotionMapper
 from aiagent.live2d.payload_builder import Live2DPayloadBuilder
 from aiagent.live2d.registry import Live2DRegistry
 from aiagent.live2d.scene_mapper import Live2DSceneMapper
-from aiagent.vision.character_registry import CharacterRegistry
-from aiagent.vision.character_retriever import CharacterRetriever
-from aiagent.vision.image_store import ImageStore
 from aiagent.memory.mem0_memory import Mem0LongTermMemory
-from aiagent.memory.null_memory import NullLongTermMemory
 from aiagent.memory.memory_preferences import MemoryPreferenceStore
 from aiagent.memory.memory_prompt import MemoryPromptBuilder
 from aiagent.memory.memory_write_audit import MemoryWriteAuditLog
 from aiagent.memory.memory_write_dispatcher import MemoryWriteDispatcher
+from aiagent.memory.null_memory import NullLongTermMemory
 from aiagent.orchestrator.dispatcher import EventDispatcher
 from aiagent.orchestrator.event_bus import EventBus
 from aiagent.orchestrator.interrupt_manager import InterruptManager
@@ -54,20 +49,24 @@ from aiagent.perception.voice_turn_manager import VoiceTurnManager
 from aiagent.persona.persona_loader import PersonaLoader
 from aiagent.persona.persona_manager import PersonaManager
 from aiagent.services.llm_service import LLMService
-from aiagent.services.vision_service import VisionService
 from aiagent.services.memory_policy_llm_service import MemoryPolicyLLMService
 from aiagent.services.planner_llm_service import PlannerLLMService
 from aiagent.services.state_llm_service import StateLLMService
+from aiagent.services.vision_service import VisionService
 from aiagent.state.agent_state import AgentRuntimeState
 from aiagent.state.conversation_state import ConversationState
 from aiagent.state.emotion_state import EmotionState
-from aiagent.state.speaking_state import SpeakingState
-from aiagent.state.stream_state import StreamingState
 from aiagent.state.redis_state_store import RedisStateStore
 from aiagent.state.shared_state import SharedStateUnavailableError
+from aiagent.state.speaking_state import SpeakingState
+from aiagent.state.stream_state import StreamingState
+from aiagent.vision.character_registry import CharacterRegistry
+from aiagent.vision.character_retriever import CharacterRetriever
+from aiagent.vision.image_store import ImageStore
+from apps.core.capabilities import CapabilityRegistry
 from apps.core.runtime import CoreRuntime
-from config.settings import settings
 from cloud.config import cloud_settings
+from config.settings import settings
 from integrations.asr.api_asr_client import ApiASRClient
 from integrations.asr.faster_whisper_client import FasterWhisperClient
 from integrations.asr.microphone import StreamingMicrophone
@@ -451,7 +450,7 @@ def build_runtime() -> CoreRuntime:
     memory_write_audit = MemoryWriteAuditLog(
         tail_limit=settings.memory_write_audit_tail_limit,
     )
-    
+
     memory_runner = MemoryRunner(
         memory=long_term_memory, # MemoryRunner 每轮会使用两次：回复前检索长期记忆，回复后按策略写入。 # type: ignore
         policy_service=MemoryPolicyLLMService(llm_service=llm_service),
@@ -477,7 +476,7 @@ def build_runtime() -> CoreRuntime:
         loader=persona_loader,
         shared_state_store=shared_state_store,
     )
-    
+
     agent_core = AgentCore(
         main_runner=main_runner,
         agent_state=agent_state,
@@ -581,7 +580,7 @@ def build_runtime() -> CoreRuntime:
             )
 
     output_broadcaster = OutputBroadcaster(
-        tts_dispatcher=tts_dispatcher, 
+        tts_dispatcher=tts_dispatcher,
         live2d_dispatcher=live2d_dispatcher, # type: ignore
         motion_policy=MotionPolicy(),
         audio_playback_dispatcher=audio_playback_dispatcher,

@@ -16,7 +16,6 @@ from aiagent.schemas.voice import (
 from cloud.config import cloud_settings
 from cloud.redis_client import get_redis_client
 
-
 logger = logging.getLogger("aiagent.voice.call_store")
 
 

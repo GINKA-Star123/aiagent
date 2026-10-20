@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import ipaddress
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 from urllib.parse import urlsplit
+
 
 class HttpSecurityConfigError(ValueError):
      """
@@ -368,4 +369,3 @@ def csv_value(values: Iterable[str]) -> str:
     """
 
     return ",".join(values)
-        

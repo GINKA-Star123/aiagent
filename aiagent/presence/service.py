@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from aiagent.presence.live2d_mapper import build_live2d_presence
 from aiagent.presence.models import (
@@ -14,7 +14,7 @@ from aiagent.presence.opening_generator import (
     generate_opening_text,
     update_snapshot_after_open,
 )
-from aiagent.presence.rhythm import mood_label,choose_presence_state, update_mood_for_time
+from aiagent.presence.rhythm import choose_presence_state, mood_label, update_mood_for_time
 from aiagent.presence.store import PresenceStore
 
 OPENING_COOLDOWN = timedelta(minutes=10)
@@ -25,9 +25,9 @@ class PresenceService:
         self.store = store or PresenceStore()
 
     async def open_session(self,req:SessionOpenRequest) -> SessionOpenResponse:
-        now = req.client_time or datetime.now(timezone.utc)
+        now = req.client_time or datetime.now(UTC)
         if now.tzinfo is None:
-            now = now.replace(tzinfo = timezone.utc)
+            now = now.replace(tzinfo = UTC)
 
         snapshot = await self.store.get_snapshot(
             user_id = req.user_id,
@@ -41,7 +41,7 @@ class PresenceService:
         if last_opening_shown_at is not None:
             if last_opening_shown_at.tzinfo is None:
                 last_opening_shown_at = last_opening_shown_at.replace(
-                    tzinfo=timezone.utc,
+                    tzinfo=UTC,
                 )
 
             if now - last_opening_shown_at < OPENING_COOLDOWN:
@@ -104,7 +104,7 @@ class PresenceService:
         )
 
         updated_snapshot.mood = snapshot.mood
-        updated_snapshot.last_opening_shown_at = now.astimezone(timezone.utc)
+        updated_snapshot.last_opening_shown_at = now.astimezone(UTC)
 
         await self.store.save_snapshot(updated_snapshot)
 

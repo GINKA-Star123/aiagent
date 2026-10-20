@@ -17,7 +17,7 @@ class VoiceTurnManager:
         self.asr_listener = asr_listener
         self.microphone = microphone
         self.stream_state = stream_state
-        self.session_controller = session_controller    
+        self.session_controller = session_controller
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def capture_turn(

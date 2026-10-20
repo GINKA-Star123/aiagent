@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable,Any
+from typing import Any
 from urllib.parse import urlparse
 
+from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
-from langchain_community.vectorstores import FAISS
 from langchain_huggingface import HuggingFaceEmbeddings
 from openai import OpenAI
 
@@ -129,7 +130,7 @@ class LangChainVectorStore:
             )
 
     def similarity_search(self, query: str, k: int = 6) -> list[Document]:
-        
+
         if self.store is None:
             raise RuntimeError("Vector store is not loaded")
 

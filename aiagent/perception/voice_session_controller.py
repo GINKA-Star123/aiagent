@@ -25,7 +25,7 @@ class VoiceSessionController:
             self.logger.info("Interrupting current playback before listening")
             self.audio_playback_dispatcher.interrupt(reason="listen_start")
 
-        self.streaming_state.is_listening = True  
+        self.streaming_state.is_listening = True
         self.streaming_state.last_error = ""
         self.streaming_state.is_processing_voice = False
         self.streaming_state.last_session_status = "listening"
@@ -58,4 +58,3 @@ class VoiceSessionController:
 
 
 
-    

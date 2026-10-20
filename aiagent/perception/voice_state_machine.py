@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from aiagent.schemas.voice import VoiceCallStatus,VoiceRealtimeCall,VoiceTurnPhase
+from aiagent.schemas.voice import VoiceCallStatus, VoiceRealtimeCall, VoiceTurnPhase
 
 MAX_INTERRUPT_REASON_LENGTH = 120
 

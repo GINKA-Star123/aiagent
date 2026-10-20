@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from cloud.config import cloud_settings
 from cloud.redis_client import get_redis_client
 
-
 _memory_lock = asyncio.Lock()
 _memory_locks: dict[str, tuple[str, float]] = {}
 

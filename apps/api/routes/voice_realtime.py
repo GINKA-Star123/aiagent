@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, UploadFile
-from pydantic import BaseModel,Field
+from pydantic import BaseModel
 
 from aiagent.graphs.metadata_utils import now_perf
 from aiagent.live2d.payload_contract import normalize_live2d_payload
@@ -30,14 +30,13 @@ from aiagent.perception.voice_state_machine import (
 )
 from aiagent.schemas.outputs import ResponsePacket
 from aiagent.schemas.voice import VoiceTurnPhase
-from apps.api.shared_state_errors import shared_state_error_response
 from apps.api.response_utils import (
     error_message_response,
     error_response,
     ok_response,
 )
+from apps.api.shared_state_errors import shared_state_error_response
 from apps.core.runtime_registry import get_runtime, get_runtime_error
-
 from cloud.config import cloud_settings
 
 router = APIRouter()

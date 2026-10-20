@@ -6,8 +6,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from aiagent.schemas.outputs import ResponsePacket
 from aiagent.graphs.metadata_utils import elapsed_ms, now_perf
+from aiagent.schemas.outputs import ResponsePacket
 from aiagent.state.speaking_state import SpeakingState
 from integrations.tts.gpt_sovits_client import GPTSoVITSClient
 from integrations.tts.indextts2_client import IndexTTS2Client
@@ -146,7 +146,7 @@ class TTSDispatcher:
             "tts_max_segment_chars": str(MAX_TTS_SEGMENT_CHARS),
         }
 
-        return cleaned_paths, cleaned_texts, stats      
+        return cleaned_paths, cleaned_texts, stats
 
     def _synthesize(self, text: str) -> tuple[str, list[str], list[str]]:
         if self.enable_mock_tts or self.tts_provider == "mock":

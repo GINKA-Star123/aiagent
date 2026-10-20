@@ -7,19 +7,19 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from aiagent.perception.voice_call_store import voice_call_store
+from apps.core.runtime_registry import get_runtime_error
 from cloud.config import cloud_settings
-from cloud.gpu_client import gpu_client
-from cloud.redis_client import redis_health
-from cloud.task_queue import CloudTaskQueue
 from cloud.failure_policy import (
     FailureMode,
     describe_failure_policy,
     multi_instance_unsafe_dependencies,
 )
+from cloud.gpu_client import gpu_client
 from cloud.object_storage import get_object_store
 from cloud.ops_snapshot import admin_token_state, build_config_snapshot
-from apps.core.runtime_registry import get_runtime_error
-from aiagent.perception.voice_call_store import voice_call_store
+from cloud.redis_client import redis_health
+from cloud.task_queue import CloudTaskQueue
 
 _CALL_STORE = voice_call_store
 
@@ -82,7 +82,7 @@ async def build_public_readiness() -> ReadinessSnapshot:
 async def build_ops_readiness(task_queue: CloudTaskQueue | None = None) -> ReadinessSnapshot:
     redis = await redis_health()
     gpu = await gpu_client.health_all()
-    voice_store = await voice_call_store.backend_status()
+    await voice_call_store.backend_status()
     config_snapshot = build_config_snapshot()
     risk_summary = config_snapshot["risk_summary"]
 

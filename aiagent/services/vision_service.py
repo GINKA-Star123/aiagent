@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import mimetypes
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -11,44 +10,27 @@ from typing import Any
 import httpx
 from PIL import Image
 
-from aiagent.vision.confidence_policy import VisionConfidencePolicy
-from aiagent.vision.character_retriever import CharacterRetriever
-from aiagent.vision.image_store import ImageStore, StoredImage
 from aiagent.graphs.graph_model import (
+    VISION_ANALYZE_SCHEMA_VERSION,
     CharacterCandidate,
-    DailySceneResult,
     VisionAnalyzeResult,
+    VisionConfidenceLevel,
     VisionLive2DSuggestion,
     VisionMemoryCandidate,
-    VisionSafetyResult,
-    VisionImageType,
-    VisionConfidenceLevel,
-    VISION_ANALYZE_SCHEMA_VERSION,
+    VisionModelPayload,
 )
+from aiagent.vision.character_retriever import CharacterRetriever
 from aiagent.vision.confidence_policy import (
     MODEL_CONFIRMED_SOURCE,
     RETRIEVAL_ONLY_SOURCE,
     VisionConfidencePolicy,
 )
-from aiagent.vision.character_retriever import CharacterRetriever
 from aiagent.vision.image_store import ImageStore, StoredImage
 from aiagent.vision.vision_memory_policy import decide_memory
 from aiagent.vision.vision_payload_guard import (
     build_channels,
     describe_violations,
     normalize_payload,
-)
-from aiagent.graphs.graph_model import (
-    CharacterCandidate,
-    DailySceneResult,
-    VisionAnalyzeResult,
-    VisionLive2DSuggestion,
-    VisionMemoryCandidate,
-    VisionModelPayload,
-    VisionSafetyResult,
-    VisionImageType,
-    VisionConfidenceLevel,
-    VISION_ANALYZE_SCHEMA_VERSION,
 )
 
 logger = logging.getLogger(__name__)
@@ -620,5 +602,3 @@ B. 日常图片：
             return float(value)
         except Exception:
             return fallback
-
-        return min(max(number,0.0),1.0)

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 
-from langchain_core.documents import Document
 from langchain_community.retrievers import BM25Retriever
+from langchain_core.documents import Document
 from pydantic import BaseModel, Field
 
 from aiagent.knowledge.vector_store import LangChainVectorStore
@@ -105,7 +105,7 @@ class HybridRetriever:
             return doc
 
         return Document(page_content=str(raw_content),metadata=metadata)
-        
+
     def retrieve(self, query: str, vector_store: LangChainVectorStore, top_k: int = 10) -> list[RetrievedChunk]:
         query = query.strip()
         if not query:
@@ -195,7 +195,7 @@ class HybridRetriever:
 
             chinese_terms.append(block)
 
-            
+
             if len(block) >= 5:
                 chinese_terms.extend(block[i : i + 3] for i in range(len(block) - 2))
 

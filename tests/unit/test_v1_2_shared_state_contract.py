@@ -1,12 +1,11 @@
 import os
-import pytest
 
+import pytest
 from langchain_core.messages import HumanMessage
 
 from aiagent.graphs.llm_graph import LLMRunner
 from aiagent.state.redis_state_store import RedisStateStore
 from aiagent.state.shared_state import ThreadOwnerRecord
-
 
 pytestmark = pytest.mark.integration
 

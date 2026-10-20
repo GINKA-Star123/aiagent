@@ -17,7 +17,7 @@ class InterruptManager:
 
         self.pending_interrupt = False
         return self.last_reason
-    
+
     def snapshot(self) -> dict:
         return {
             "pending_interrupt": self.pending_interrupt,

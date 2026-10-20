@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime,timezone
+from datetime import UTC, datetime
 from enum import StrEnum
 from threading import RLock
 from typing import Any
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
+
 
 class CapabilityStatus(StrEnum):
     UNKNOWN = "unknown"
@@ -22,7 +23,7 @@ class CapabilityRecord(BaseModel):
     details:dict[str,Any] = Field(default_factory=dict)
     error:str = ""
     updated_at :str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
 
 class CapabilityRegistry:

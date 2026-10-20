@@ -7,15 +7,14 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request, Response
 from starlette.responses import JSONResponse
 
-from cloud.config import cloud_settings
-from cloud.limits import ConcurrencyLimiter, RateLimiter
-
 from apps.api.http_security import (
     build_trusted_proxy_policy,
     resolve_client_ip,
 )
 from apps.api.middleware import normalize_request_id
 from apps.api.request_context import get_request_id
+from cloud.config import cloud_settings
+from cloud.limits import ConcurrencyLimiter, RateLimiter
 from config.settings import settings
 
 logger = logging.getLogger("aiagent.cloud.middleware")

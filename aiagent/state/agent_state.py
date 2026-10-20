@@ -4,6 +4,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+
 class AgentStatus(StrEnum):
     """Agent status."""
     IDLE = "idle"
@@ -19,4 +20,3 @@ class AgentRuntimeState(BaseModel):
     last_input_id : str|None = None
     last_output_id : str|None = None
     error_message : str|None = None
-    

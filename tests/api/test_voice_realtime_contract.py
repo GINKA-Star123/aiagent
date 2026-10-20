@@ -247,7 +247,7 @@ def test_voice_realtime_turn_rejects_when_playback_is_speaking(
     call_id = _start_call(api_client, test_user)
 
     runtime = get_runtime()
-    runtime_call = runtime.handle_chat_full(
+    runtime.handle_chat_full(
         text="先生成一条语音回复",
         user_id=test_user["user_id"],
         username=test_user["username"],
@@ -325,8 +325,8 @@ def test_voice_realtime_turn_rejects_during_processing(
 ):
     call_id = _start_call(api_client, test_user)
 
-    from apps.api.routes.voice_realtime import _CALL_STORE
     from aiagent.schemas.voice import VoiceTurnPhase
+    from apps.api.routes.voice_realtime import _CALL_STORE
 
     # 这些 store 方法都是 async，且共享一把绑定在 app 事件循环上的 asyncio.Lock，
     # 所以必须通过 TestClient 的 portal 在同一个 loop 上执行，

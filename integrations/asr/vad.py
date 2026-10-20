@@ -2,6 +2,7 @@
 
 import numpy as np
 
+
 class VoiceActivityDetector:
     def __init__(self,energy_threshold: float=0.015) -> None:
         self.energy_threshold = energy_threshold
@@ -9,7 +10,7 @@ class VoiceActivityDetector:
     def is_speech(self, audio_chunk:np.ndarray) ->bool:
         if audio_chunk.size==0:
             return False
-        
+
         chunk = audio_chunk.astype(np.float32)
 
         if chunk.ndim>1:

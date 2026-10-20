@@ -1,8 +1,8 @@
 from aiagent.graphs.metadata_utils import (
     mark_stage_done,
     mark_stage_failed,
-    mark_stage_started,
     mark_stage_skipped,
+    mark_stage_started,
     metadata_strings,
     now_perf,
 )

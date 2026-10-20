@@ -1,23 +1,20 @@
 from __future__ import annotations
 
-import json
-import traceback
 from typing import Any
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from aiagent.live2d.motion_mapper import Live2DMotionMapper
+from aiagent.live2d.payload_builder import Live2DPayloadBuilder
+from aiagent.live2d.payload_contract import normalize_live2d_payload
+from aiagent.live2d.registry import Live2DRegistry
+from aiagent.live2d.scene_mapper import Live2DSceneMapper
 from apps.api.response_utils import (
     error_message_response,
     error_response,
     ok_response,
 )
-
-from aiagent.live2d.motion_mapper import Live2DMotionMapper
-from aiagent.live2d.payload_builder import Live2DPayloadBuilder
-from aiagent.live2d.registry import Live2DRegistry
-from aiagent.live2d.scene_mapper import Live2DSceneMapper
-from aiagent.live2d.payload_contract import normalize_live2d_payload
 from integrations.live2d.live2d_py_runtime import Live2DPyRuntime
 from integrations.live2d.model_scanner import Live2DModelScanner
 from integrations.live2d.profile_generator import Live2DProfileGenerator
@@ -129,7 +126,7 @@ def live2d_runtime_status():
 @router.post("/live2d/runtime/inspect")
 def live2d_runtime_inspect(request: Live2DInspectRequest):
     try:
-        runtime = Live2DPyRuntime()
+        Live2DPyRuntime()
         model3_json = _resolve_model3_json(
             character_id=request.character_id,
             model3_json=request.model3_json,

@@ -1,8 +1,9 @@
-from aiagent.graphs.graph_model import VisionSafetyResult
 from aiagent.graphs.graph_model import (
     VisionAnalyzeResult,
     VisionConfidenceLevel,
+    VisionSafetyResult,
 )
+
 
 def test_vision_safety_accepts_canonical_sensitive_field():
     result = VisionSafetyResult(has_sensitive_content=True, risk_level="low")

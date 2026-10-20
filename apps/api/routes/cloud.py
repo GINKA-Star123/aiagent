@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, File, Form, UploadFile
 from pydantic import BaseModel, Field
 
@@ -23,7 +21,6 @@ from cloud.object_storage import (
     stored_object_payload,
 )
 from cloud.redis_client import redis_health
-
 
 router = APIRouter()
 

@@ -4,16 +4,16 @@ CoreRuntime 是 API 路由和本地工具共用的门面。它把 HTTP 友好的
 转换成 InputEvent，再交给 dispatcher 和图流程执行推理。
 """
 from typing import Any
-from apps.core.capabilities import CapabilityRegistry
 
 from aiagent.brain.agent_core import AgentCore
 from aiagent.brain.dialogue_manager import DialogueManager
+from aiagent.graphs.graph_model import VisionAnalyzeResult
 from aiagent.graphs.memory_graph import MemoryRunner
 from aiagent.graphs.metadata_utils import mark_stage_done, now_perf
 from aiagent.graphs.vision_graph import VisionRunner
 from aiagent.knowledge.query_normalizer import normalize_rag_query
 from aiagent.knowledge.rag_pipeline import RAGPipeline
-from aiagent.graphs.graph_model import VisionAnalyzeResult
+from aiagent.live2d.payload_contract import normalize_live2d_payload
 from aiagent.memory.mem0_memory import Mem0LongTermMemory
 from aiagent.memory.memory_layers import infer_memory_layer
 from aiagent.orchestrator.dispatcher import EventDispatcher
@@ -22,21 +22,19 @@ from aiagent.perception.asr_listener import ASRListener
 from aiagent.perception.source_router import SourceRouter
 from aiagent.perception.voice_session_controller import VoiceSessionController
 from aiagent.perception.voice_turn_manager import VoiceTurnManager
-from aiagent.schemas.inputs import InputEvent, InputSource, InputAttachment
-from aiagent.schemas.outputs import OutputEvent
+from aiagent.schemas.inputs import InputAttachment, InputEvent, InputSource
 from aiagent.schemas.memory import (
-    MemoryCategory,
     MemoryEditRequest,
-    MemoryImportance,
     MemoryLayer,
     MemoryMergeRequest,
 )
+from aiagent.schemas.outputs import OutputEvent
 from aiagent.services.llm_service import LLMService
 from aiagent.services.vision_service import VisionService
 from aiagent.state.conversation_state import ConversationState
 from aiagent.state.speaking_state import SpeakingState
 from aiagent.state.stream_state import StreamingState
-from aiagent.live2d.payload_contract import normalize_live2d_payload
+from apps.core.capabilities import CapabilityRegistry
 
 
 class CoreRuntime:
@@ -91,9 +89,9 @@ class CoreRuntime:
         return self.handle_input_event(event)
 
     def handle_chat(
-            self, 
-            text: str, 
-            user_id: str = "guest", 
+            self,
+            text: str,
+            user_id: str = "guest",
             username: str = "guest",
             session_id: str = "",
             turn_id: str = "",) -> str:
@@ -101,9 +99,9 @@ class CoreRuntime:
         return self.handle_input_event(event).packet.reply_text
 
     def handle_chat_full(
-            self, 
-            text: str, 
-            user_id: str = "guest", 
+            self,
+            text: str,
+            user_id: str = "guest",
             username: str = "guest",
             session_id: str = "",
             turn_id: str = "") -> OutputEvent:
@@ -224,7 +222,7 @@ class CoreRuntime:
 
         if self.voice_session_controller is None:
             raise RuntimeError("Voice session controller is not configured.")
-        
+
         self.voice_session_controller.interrupt_listening(reason=reason)
         return {"status": "interrupted", "reason": reason}
 
@@ -236,10 +234,10 @@ class CoreRuntime:
 
     def rebuild_knowledge_index(self, force_rebuild: bool = True) -> dict:
         return self.rag_pipeline.build_index(force_rebuild=force_rebuild)
-    
+
     def rebuild_knowledge_index_async(self,force_rebuild:bool=True) ->dict:
         return self.rag_pipeline.rebuild_async(force_rebuild=force_rebuild)
-    
+
     def get_knowledge_rebuild_status(self) ->dict:
         return self.rag_pipeline.build_status()
 
@@ -269,7 +267,7 @@ class CoreRuntime:
 
         if hasattr(self.rag_pipeline,"inspect"):
             return self.rag_pipeline.inspect(query=normalized_query, top_k=top_k)
-        
+
         chunks = self.rag_pipeline.debug_retrieve(
         query=normalized_query,
         top_k=top_k,
@@ -392,7 +390,7 @@ class CoreRuntime:
 
     def get_memory_write_status(self) -> dict:
         status_fn = getattr(self.memory_runner, "write_status", None)
-        if callable(status_fn): 
+        if callable(status_fn):
             return dict(status_fn()) # type:ignore
         return {"pending": 0, "running": False, "async_enabled": False}
 
@@ -527,7 +525,7 @@ class CoreRuntime:
             "speaking_state": self.speaking_state.model_dump(),
             "stream_state": self.stream_state.model_dump(),
         }
-    
+
     def analyze_image_upload(
         self,
         file_obj,

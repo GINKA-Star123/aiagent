@@ -4,29 +4,28 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from aiagent.graphs.degradation import build_degraded_rag_result
 from aiagent.graphs.llm_graph import LLMRunner
 from aiagent.graphs.memory_graph import MemoryRunner
-from aiagent.graphs.degradation import build_degraded_rag_result
+from aiagent.graphs.metadata_utils import (
+    mark_stage_done,
+    mark_stage_failed,
+    mark_stage_skipped,
+    mark_stage_started,
+    metadata_strings,
+    now_perf,
+)
 from aiagent.graphs.planner_graph import PlannerRunner
 from aiagent.graphs.rag_graph import RAGRunner
 from aiagent.graphs.state_graph import StateRunner
 from aiagent.graphs.vision_graph import VisionRunner
+from aiagent.live2d.payload_contract import normalize_live2d_payload
 from aiagent.persona.persona_runtime import PersonaRuntime
 from aiagent.persona.request_risk import assess_request_risk, build_safe_refusal
 from aiagent.schemas.inputs import InputAttachment, InputEvent
 from aiagent.schemas.outputs import EmotionLabel, ResponsePacket
 from aiagent.schemas.safety import RequestRiskAssessment
-from aiagent.live2d.payload_contract import normalize_live2d_payload
 from aiagent.state.shared_state_guard import raise_if_shared_state_error
-
-from aiagent.graphs.metadata_utils import (
-    mark_stage_done,
-    mark_stage_failed,
-    mark_stage_started,
-    mark_stage_skipped,
-    metadata_strings,
-    now_perf,
-)
 
 NO_LONG_TERM_MEMORY_TEXT = "无长期记忆。"
 STAGE_PREPARE = "prepare_context"
@@ -413,7 +412,7 @@ class MainRunner:
                 "memory_prompt_context": NO_LONG_TERM_MEMORY_TEXT,
                 "metadata": metadata,
             }
-    
+
         metadata.update(result.get("metadata", {}))
         metadata = mark_stage_done(
             metadata,
@@ -450,7 +449,7 @@ class MainRunner:
                 exc,
             )
             raise
-            
+
         metadata = mark_stage_done(
             metadata,
             STAGE_STATE,
@@ -486,7 +485,7 @@ class MainRunner:
                 exc,
             )
             raise
-        
+
         metadata = mark_stage_done(
             metadata,
             STAGE_PLANNER,
@@ -551,7 +550,6 @@ class MainRunner:
     def _run_llm_graph_node(self, state: MainGraphState) -> dict[str, object]:
         started_at = now_perf()
         event = state["input_event"]# type: ignore
-        effective_text = state.get("effective_user_text") or event.text
         rag_result = state["rag_result"]# type: ignore
         metadata = dict(state.get("metadata", {}))
         try:
@@ -651,7 +649,7 @@ class MainRunner:
             "memory_write_result": store_result,
             "metadata": metadata,
         }
-    
+
     def _build_response_packet_node(self, state: MainGraphState) -> dict[str, object]:
         started_at = now_perf()
         llm_result = state["llm_result"]# type: ignore

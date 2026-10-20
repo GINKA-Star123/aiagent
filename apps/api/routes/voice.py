@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+
+from fastapi import APIRouter, File, UploadFile
 from pydantic import BaseModel
-from fastapi import APIRouter,File, UploadFile
 
-from apps.api.response_utils import error_response,ok_response
+from apps.api.response_utils import error_response, ok_response
 from apps.core.runtime_registry import get_runtime, get_runtime_error
-
 
 router = APIRouter()
 logger = logging.getLogger("aiagent.api.voice")

@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import IntEnum , StrEnum
-from uuid import uuid4
+from enum import IntEnum, StrEnum
 from typing import Any
+from uuid import uuid4
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
 
 
 class InputSource(StrEnum):

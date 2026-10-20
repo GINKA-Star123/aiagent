@@ -76,7 +76,7 @@ class VisionRunner:
             )
 
         return result  #type:ignore
- 
+
     def analyze_path(
         self,
         image_path: str,
@@ -107,7 +107,7 @@ class VisionRunner:
             )
 
         return result #type:ignore
- 
+
     def _analyze_image_node(self, state: VisionGraphState) -> VisionGraphState:
         user_prompt = state.get("user_prompt", "")
         user_id = state.get("user_id", "guest")
@@ -199,7 +199,7 @@ class VisionRunner:
         - avoid_identity_assertion: {policy.avoid_identity_assertion}
         - reply_instruction: {policy.reply_instruction}
         """.strip()
-        
+
         daily = result.daily_scene
         daily_text = f"""
 - scene_type: {daily.scene_type}

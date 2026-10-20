@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from typing import Any,TypedDict
+from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
 from aiagent.cognition.state_analyzer import StateAnalyzer
 from aiagent.cognition.state_normalizer import StateNormalizer
 from aiagent.cognition.state_prompt import StateInferencePromptBuilder
-from aiagent.graphs.graph_model import StateGraphInput, StateInferenceOutput,StateGraphResult
+from aiagent.graphs.graph_model import StateGraphInput, StateGraphResult, StateInferenceOutput
 from aiagent.graphs.metadata_utils import mark_stage_done, now_perf
 from aiagent.persona.persona_runtime import PersonaRuntime
+
 
 class StateGraphState(TypedDict,total=False):
     input:StateGraphInput
@@ -42,12 +43,12 @@ class StateRunner:
         graph.add_edge("normalize_state",END)
 
         return graph.compile()
-    
+
     def _build_prompt_node(self,state:StateGraphState) -> StateGraphState:
         started_at = now_perf()
         graph_input = state["input"] # type: ignore
         persona_runtime = state["persona_runtime"] # type: ignore
-        
+
         prompt = StateInferencePromptBuilder.build(
             user_text = graph_input.user_text, # type: ignore
             user_name=graph_input.user_name, # type: ignore
@@ -87,8 +88,8 @@ class StateRunner:
         return {
             "output":output,
             "metadata":metadata
-        }    
-    
+        }
+
     def _normalize_state_node(self,state:StateGraphState) -> StateGraphState:
         started_at = now_perf()
         normalized = self.state_normalizer.normalize(state["output"]) #type:ignore
@@ -102,7 +103,7 @@ class StateRunner:
             "normalized_output":normalized,
             "metadata":metadata
         }
-    
+
     def run(
         self,
         user_text:str,

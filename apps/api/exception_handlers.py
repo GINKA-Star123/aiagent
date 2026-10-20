@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import HTTPException, Request
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import Response
 
 from apps.api.response_utils import error_message_response
+
 
 def _stage_from_path(path: str) -> str:
     if path.startswith("/cloud/tasks"):

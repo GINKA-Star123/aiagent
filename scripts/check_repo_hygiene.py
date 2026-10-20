@@ -1,4 +1,4 @@
-"""仓库卫生检查。
+r"""仓库卫生检查。
 
 用法：
     .venv\Scripts\python.exe scripts\check_repo_hygiene.py

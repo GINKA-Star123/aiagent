@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass,field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
 
 @dataclass(frozen=True)
 class CharacterProfile:
@@ -31,20 +32,20 @@ class CharacterRegistry:
         for profile_path in sorted(self.root_dir.glob("*/profile.yaml")):
             profile = self._load_profile(profile_path)
             profiles[profile.character_id] = profile
-        
+
         self._profiles = profiles
         return dict(self._profiles)
-    
+
     def all_profiles(self) ->list[CharacterProfile]:
         if not self._profiles:
             self.load()
         return list(self._profiles.values())
-    
+
     def get(self,character_id:str) -> CharacterProfile:
         if not self._profiles:
             self.load()
         return self._profiles[character_id]
-    
+
     def _load_profile(self,profile_path:Path) ->CharacterProfile:
         raw = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
 

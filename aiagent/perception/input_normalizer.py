@@ -2,6 +2,7 @@
 
 from aiagent.schemas.inputs import EventPriority, InputEvent, InputSource
 
+
 class InputNormalizer:
     def normalize_chat(
             self,
@@ -19,7 +20,7 @@ class InputNormalizer:
             priority=priority,
             metadata=metadata or {}
         )
-    
+
     def normalize_asr_text(
             self,
             text:str,
@@ -36,7 +37,7 @@ class InputNormalizer:
             priority=priority,
             metadata={"asr_code": asr_mode}
         )
-    
+
     def normalize_system(
             self,
             text:str,
@@ -52,11 +53,11 @@ class InputNormalizer:
             priority=priority,
             metadata={"source_label":"system"}
         )
-    
+
     def parse_priority(self,value) -> EventPriority:
         if isinstance(value,EventPriority):
             return value
-        
+
         if isinstance(value,int):
             if value>=EventPriority.HIGH:
                 return EventPriority.HIGH
@@ -66,7 +67,7 @@ class InputNormalizer:
                 return EventPriority.LOW
             else:
                 return EventPriority.LOW
-        
+
         if isinstance(value, str):
             lowered = value.strip().lower()
             if lowered in {"high", "10"}:

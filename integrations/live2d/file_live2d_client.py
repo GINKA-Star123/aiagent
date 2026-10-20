@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from aiagent.live2d.payload_builder import Live2DPayloadBuilder
 
+
 class FileLive2DClient:
     def __init__(
             self,

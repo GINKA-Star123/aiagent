@@ -3,10 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from datetime import datetime
-
 
 from langchain_core.documents import Document
 
@@ -20,11 +19,11 @@ from aiagent.knowledge.index_manifest import (
     save_index_manifest,
 )
 from aiagent.knowledge.index_manifest_models import IndexFreshnessReport
+from aiagent.knowledge.rag_citations import build_rag_citations
+from aiagent.knowledge.rag_confidence import evaluate_rag_confidence
 from aiagent.knowledge.reranker import SimpleReranker
 from aiagent.knowledge.retriever import HybridRetriever, RetrievedChunk
 from aiagent.knowledge.vector_store import LangChainVectorStore
-from aiagent.knowledge.rag_citations import build_rag_citations
-from aiagent.knowledge.rag_confidence import evaluate_rag_confidence
 from config.paths import KNOWLEDGE_CACHE_DIR, KNOWLEDGE_INDEX_MANIFEST_NAME, KNOWLEDGE_PUBLIC_DIR
 
 logger = logging.getLogger(__name__)
@@ -90,7 +89,7 @@ class RAGPipeline:
                     "error":"",
                 }
             )
-        
+
         try:
             stats = self._build_index_inner(force_rebuild=force_rebuild)
         except Exception as exc:
@@ -103,7 +102,7 @@ class RAGPipeline:
                         "error":str(exc),
                     }
                 )
-            raise 
+            raise
 
         with self._build_lock:
             self._build_status.update(
@@ -121,7 +120,7 @@ class RAGPipeline:
         with self._build_lock:
             if self._build_status.get("running"):
                 return self.build_status()
-            
+
             self._build_status.update(
                 {
                     "running":True,
@@ -140,18 +139,18 @@ class RAGPipeline:
         thread.start()
 
         return self.build_status()
-    
+
     def build_status(self) -> dict[str,Any]:
         with self._build_lock:
             return dict(self._build_status)
-        
+
     def _rebuild_worker(self,force_rebuild:bool) ->None:
         try:
             self.build_index(force_rebuild=force_rebuild)
 
         except Exception:
             pass
-    
+
     def _build_index_inner(self, force_rebuild: bool = False) -> dict[str, Any]:
         # 快速路径：直接加载已缓存的 split docs 和 FAISS 向量，
         # 避免每次启动都重新 embedding 全部知识文件。
@@ -244,7 +243,7 @@ class RAGPipeline:
             }
             for chunk in self.retrieve(query=query, top_k=top_k)
         ]
-    
+
     def inspect(
                 self,
                 query: str,
@@ -338,7 +337,7 @@ class RAGPipeline:
         self.docs_index_path.parent.mkdir(parents=True, exist_ok=True)
 
         payload = [{"page_content": doc.page_content, "metadata": doc.metadata} for doc in documents]
-        
+
         self.docs_index_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",

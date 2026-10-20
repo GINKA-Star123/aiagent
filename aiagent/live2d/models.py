@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
 
 LIVE2D_PAYLOAD_VERSION = "1.0"
 
@@ -42,7 +42,7 @@ class Live2DMotionAsset(BaseModel):
 class Live2DCharacterProfile(BaseModel):
     character_id :str
     model_id:str
-    display_name :str 
+    display_name :str
     model3_json:str
 
     default_expression:str = "neutral"

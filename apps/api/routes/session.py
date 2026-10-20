@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter
-from apps.api.response_utils import ok_response
+
 from aiagent.presence.models import SessionOpenRequest
 from aiagent.presence.service import PresenceService
+from apps.api.response_utils import ok_response
 
 router = APIRouter()
 logger = logging.getLogger("aiagent.api.session")

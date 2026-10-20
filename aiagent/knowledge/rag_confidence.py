@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
 
 RAGConfidenceLevel = Literal["high","medium","low","none"]
 RAGConfidenceStatus = Literal["passed","low_relevance","empty"]
@@ -68,7 +68,6 @@ def evaluate_rag_confidence(
     score = _float(chunk.get("score"))
     cosine = _float(chunk.get("cosine_score"))
     bm25_rank = _optional_int(chunk.get("bm25_rank"))
-    vector_rank = _optional_int(chunk.get("vector_rank"))
 
     signals: list[str] = []
 

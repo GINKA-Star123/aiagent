@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from aiagent.diagnostics.runtime_diagnostics import RuntimeDiagnostics
-from apps.core.runtime_registry import get_runtime,get_runtime_error
-from apps.api.response_utils import error_response, json_response,ok_response
+from apps.api.response_utils import error_response, json_response, ok_response
+from apps.core.runtime_registry import get_runtime, get_runtime_error
 
 router = APIRouter()
 

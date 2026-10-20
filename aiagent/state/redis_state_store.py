@@ -5,8 +5,9 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any
 
 from aiagent.state.shared_state import (
     DEFAULT_MAX_THREADS_PER_USER,
@@ -17,7 +18,6 @@ from aiagent.state.shared_state import (
     SharedStateOwnershipError,
     SharedStateUnavailableError,
     ThreadOwnerRecord,
-    utc_now,
 )
 
 logger = logging.getLogger("aiagent.shared_state")
@@ -141,7 +141,7 @@ class RedisStateStore:
             raise
         except Exception as exc:
             self._raise_unavailable(exc)
-            raise AssertionError("unreachable")
+            raise AssertionError("unreachable") from exc
 
     def register_thread(self, record: ThreadOwnerRecord) -> None:
         try:
@@ -219,7 +219,7 @@ class RedisStateStore:
         except Exception as exc:
             self._raise_unavailable(exc)
             return None
-        
+
 
     @contextmanager
     def session_lock(
@@ -307,7 +307,7 @@ class RedisStateStore:
                 ex=self.session_ttl_seconds,
             )
         except Exception as exc:
-            self._raise_unavailable(exc) 
+            self._raise_unavailable(exc)
 
     def delete_user_threads(self, user_id: str) -> list[str]:
         thread_ids = self.list_user_threads(user_id)

@@ -4,20 +4,20 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from aiagent.graphs.graph_model import RAGGraphInput, RAGGraphResult
 from aiagent.graphs.degradation import RAG_DEGRADED_REASON, build_degraded_rag_result
-
+from aiagent.graphs.graph_model import RAGGraphInput, RAGGraphResult
 from aiagent.graphs.metadata_utils import (
     mark_stage_done,
     mark_stage_failed,
-    mark_stage_started,
     mark_stage_skipped,
+    mark_stage_started,
     metadata_strings,
     now_perf,
 )
 from aiagent.knowledge.query_normalizer import normalize_rag_query
 from aiagent.knowledge.rag_citations import build_rag_citations, citations_to_metadata
 from aiagent.knowledge.rag_confidence import evaluate_rag_confidence
+
 
 class RAGGraphState(TypedDict, total=False):
     input: RAGGraphInput
@@ -95,7 +95,7 @@ class RAGRunner:
                 reason=RAG_DEGRADED_REASON,
                 metadata=metadata,
             )
-        
+
         metadata = mark_stage_done(
             dict(result.get("metadata", {})),
             "rag_graph",
@@ -181,7 +181,7 @@ class RAGRunner:
             "raw_debug": raw_debug,
             "metadata": metadata,
         }
-         
+
 
     def _filter_relevance_node(self, state: RAGGraphState) -> dict[str, object]:
         raw_context = list(state.get("raw_context", []))
@@ -261,7 +261,7 @@ class RAGRunner:
         )
         return {"result": result}
 
-    
+
     def _build_search_query(self, user_text: str, planner_query: str = "", state_topic: str = "") -> str:
         base_parts = [
             planner_query.strip(),

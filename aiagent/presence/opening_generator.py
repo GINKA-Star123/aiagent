@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from aiagent.presence.models import OpeningKind, SessionSnapshot
 from aiagent.presence.rhythm import mood_label
@@ -83,7 +83,7 @@ def update_snapshot_after_open(
 ) -> SessionSnapshot:
     next_snapshot = snapshot.model_copy(deep=True)
     next_snapshot.open_count += 1
-    next_snapshot.last_opened_at = now.astimezone(timezone.utc)
+    next_snapshot.last_opened_at = now.astimezone(UTC)
 
     if recent_topic.strip():
         next_snapshot.last_topic = recent_topic.strip()[:120]

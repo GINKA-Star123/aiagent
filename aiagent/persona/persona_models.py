@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
 
 
 class PersonaIdentity(BaseModel):
@@ -61,7 +61,7 @@ class PersonaConfig(BaseModel):
     @property
     def name(self) -> str:
         return self.identity.name
-    
+
     @property
     def alias(self) -> str:
         return self.identity.alias

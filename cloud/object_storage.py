@@ -4,13 +4,11 @@ import asyncio
 import mimetypes
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-
 from cloud.config import cloud_settings
-
 
 DEFAULT_STORAGE_PREFIX = "uploads"
 DEFAULT_FILENAME = "file.bin"
@@ -263,7 +261,7 @@ def build_object_key(
     同时保留上传时间，便于排查和生命周期清理。
     """
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     safe_prefix = normalize_storage_prefix(prefix)
     safe_filename = normalize_filename(filename)
 

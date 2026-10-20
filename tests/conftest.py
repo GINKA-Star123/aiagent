@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-
 _TEST_ROOT = Path(__file__).resolve().parents[1]
 _TEST_TMP_ROOT = _TEST_ROOT / "_tmp" / "test-temp"
 

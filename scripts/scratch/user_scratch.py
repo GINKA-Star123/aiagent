@@ -1,5 +1,4 @@
-import json
-from bilibili_api import user, sync
+from bilibili_api import sync, user
 
 # 实例化
 u = user.User(406948651)

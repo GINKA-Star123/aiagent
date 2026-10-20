@@ -11,7 +11,6 @@ from cloud.config import cloud_settings
 from cloud.task_queue import CloudTaskQueue
 from cloud.task_view import sanitize_task
 
-
 router = APIRouter()
 task_queue = CloudTaskQueue(prefix=cloud_settings.redis_prefix)
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
 from typing import Any
@@ -58,7 +58,7 @@ class MemoryPreferenceStore:
         agent_id = agent_id.strip() or "yzl"
         key = self._key(user_id=user_id, agent_id=agent_id)
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         record = {
             "user_id": user_id,
             "agent_id": agent_id,

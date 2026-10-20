@@ -21,7 +21,7 @@ async def run_with_timeout(
 ) -> T:
     try:
         return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise CloudTimeoutError(stage, timeout_seconds) from exc
 
 

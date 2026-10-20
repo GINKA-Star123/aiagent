@@ -1,9 +1,9 @@
 import pytest
 
-from apps.core.capabilities import CapabilityRegistry, CapabilityStatus
-from apps.core.lazy_component import LazyComponent
 from aiagent.knowledge.null_rag_pipeline import NullRAGPipeline
 from aiagent.memory.null_memory import NullLongTermMemory
+from apps.core.capabilities import CapabilityRegistry, CapabilityStatus
+from apps.core.lazy_component import LazyComponent
 
 
 def test_capability_registry_snapshot_counts_statuses():

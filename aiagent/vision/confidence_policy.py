@@ -45,7 +45,7 @@ class VisionConfidencePolicy:
             return VisionImageType(str(value).strip().lower())
 
         except Exception:
-            return VisionImageType.UNKNOWN 
+            return VisionImageType.UNKNOWN
 
     def _level(self,*,score:float,threshold:float) -> VisionConfidenceLevel:
         if score >= min(threshold + 0.12,1.0):

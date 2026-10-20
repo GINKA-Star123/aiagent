@@ -22,7 +22,7 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -551,7 +551,7 @@ def build_report(root: Path | str = PROJECT_ROOT) -> dict[str, Any]:
 
     report: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "repo": collect_repo(root_path),
         "runtime": collect_runtime(root_path),
         "tracks": tracks,

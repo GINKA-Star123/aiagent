@@ -4,6 +4,7 @@ from aiagent.persona.persona_loader import PersonaLoader
 from aiagent.persona.persona_runtime import PersonaRuntime
 from aiagent.state.redis_state_store import RedisStateStore
 
+
 class PersonaManager:
     def __init__(
         self,
@@ -59,7 +60,7 @@ class PersonaManager:
         self._active_persona = PersonaRuntime(config)
         self.default_persona_id = target_persona_id
         return self._active_persona
-    
+
     def switch_persona(
         self,
         persona_id: str,
@@ -81,4 +82,3 @@ class PersonaManager:
         self._active_persona = runtime
         self.default_persona_id = persona_id
         return runtime
-    

@@ -7,9 +7,10 @@ from langgraph.graph import END, START, StateGraph
 from aiagent.cognition.planner_normalizer import PlannerNormalizer
 from aiagent.cognition.planner_prompt import PlannerPromptBuilder
 from aiagent.cognition.planner_reply import ReplyPlanner
-from aiagent.graphs.graph_model import PlannerGraphInput, PlannerInferenceOutput,PlannerGraphResult
+from aiagent.graphs.graph_model import PlannerGraphInput, PlannerGraphResult, PlannerInferenceOutput
 from aiagent.graphs.metadata_utils import mark_stage_done, now_perf
-from aiagent.persona.persona_runtime import PersonaRuntime  
+from aiagent.persona.persona_runtime import PersonaRuntime
+
 
 class PlannerGraphState(TypedDict,total=False):
     input:PlannerGraphInput
@@ -42,7 +43,7 @@ class PlannerRunner:
         graph.add_edge("normalize_plan",END)
 
         return graph.compile()
-    
+
     def _build_prompt_node(self,state:PlannerGraphState) -> PlannerGraphState:
         started_at = now_perf()
         graph_input = state["input"] # type: ignore
@@ -70,7 +71,7 @@ class PlannerRunner:
             "prompt":prompt,
             "metadata":metadata
         }
-    
+
     def _analyze_plan_node(self, state: PlannerGraphState) -> PlannerGraphState:
         started_at = now_perf()
         graph_input = state["input"] # type: ignore

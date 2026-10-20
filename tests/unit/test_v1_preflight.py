@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
-import sys                      # ← 新增
+import sys  # ← 新增
 from pathlib import Path
 
 

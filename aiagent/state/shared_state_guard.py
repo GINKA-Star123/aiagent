@@ -6,7 +6,6 @@ from aiagent.state.shared_state import (
     SharedStateUnavailableError,
 )
 
-
 _SHARED_STATE_ERRORS = (
     SharedStateUnavailableError,
     SharedStateConflictError,

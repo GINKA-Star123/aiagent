@@ -3,6 +3,7 @@ from __future__ import annotations
 from aiagent.graphs.graph_model import PlannerInferenceOutput
 from aiagent.services.planner_llm_service import PlannerLLMService
 
+
 class ReplyPlanner:
     def __init__(self,llm_service: PlannerLLMService) -> None:
         self.llm_service = llm_service

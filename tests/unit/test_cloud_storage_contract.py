@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from apps.api.routes import cloud as cloud_route
 from cloud.config import cloud_settings
 from cloud.object_storage import reset_object_store_for_tests
 from tests.helpers.api_contract import (

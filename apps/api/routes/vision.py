@@ -5,15 +5,15 @@ import logging
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 
+from aiagent.graphs.graph_model import VISION_ANALYZE_SCHEMA_VERSION
+from apps.api.request_context import get_request_id
+from apps.api.response_utils import error_message_response, error_response, ok_response
+from apps.core.runtime_registry import get_runtime, get_runtime_error
 from cloud.admin_auth import require_cloud_admin
 from cloud.config import cloud_settings
 from cloud.task_queue import CloudTaskQueue
 from cloud.timeouts import to_thread_with_timeout
-from apps.api.response_utils import error_message_response, error_response, ok_response
-from apps.api.request_context import get_request_id
-from apps.core.runtime_registry import get_runtime, get_runtime_error
 from config.settings import settings
-from aiagent.graphs.graph_model import VISION_ANALYZE_SCHEMA_VERSION
 
 router = APIRouter()
 logger = logging.getLogger("aiagent.api.vision")
@@ -108,7 +108,7 @@ async def vision_chat(
     upload_error = _validate_upload(file)
     if upload_error:
         return error_message_response(stage="vision_upload",error=upload_error,status_code=400)
-    
+
     try:
         runtime = get_runtime()
     except ValueError as exc:

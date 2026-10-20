@@ -6,12 +6,12 @@ from typing import Any
 from fastapi import APIRouter, File, Form, UploadFile
 from starlette.responses import JSONResponse
 
-from cloud.config import cloud_settings
-from cloud.degrade import degraded_chat_response
-from cloud.timeouts import CloudTimeoutError,to_thread_with_timeout
 from apps.api.response_utils import error_response, ok_response
 from apps.api.shared_state_errors import shared_state_error_response
 from apps.core.runtime_registry import get_runtime, get_runtime_error
+from cloud.config import cloud_settings
+from cloud.degrade import degraded_chat_response
+from cloud.timeouts import CloudTimeoutError, to_thread_with_timeout
 from config.settings import settings
 
 router = APIRouter()
@@ -67,7 +67,7 @@ async def multimodal_chat(
                 username = username,
                 session_id=session_id,
         )
-        
+
         packet = output.packet
         live2d = packet.live2d or _build_live2d_payload(packet)
 
@@ -87,7 +87,7 @@ async def multimodal_chat(
             live2d = live2d,
             metadata = packet.metadata,
         )
-    
+
     except CloudTimeoutError as exc:
         logger.warning("Multimodal chat timed out: %s", exc)
         return JSONResponse(

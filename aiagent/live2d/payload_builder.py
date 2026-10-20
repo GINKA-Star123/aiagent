@@ -8,9 +8,10 @@ from aiagent.live2d.models import (
     Live2DSceneCommand,
 )
 from aiagent.live2d.motion_mapper import Live2DMotionMapper
+from aiagent.live2d.payload_contract import normalize_live2d_payload
 from aiagent.live2d.registry import Live2DRegistry
 from aiagent.live2d.scene_mapper import Live2DSceneMapper
-from aiagent.live2d.payload_contract import normalize_live2d_payload
+
 
 class Live2DPayloadBuilder:
     """把语义层回复状态转换成客户端 Live2D 指令 payload。"""

@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+
 class ApiASRClient:
     def __init__(
             self,
@@ -25,13 +26,13 @@ class ApiASRClient:
 
         if not self.base_url:
             raise RuntimeError("ASR_API_BASE_URL is not configured.")
-    
+
     def transcribe(self,audio_path:str) ->str:
         path = Path(audio_path)
 
         if not path.exists():
             raise FileNotFoundError(f"Audio file not found:{path}")
-        
+
         self.logger.info("Transcribing audio with api-asr %s",path)
 
         headers = self._headers()
@@ -63,17 +64,17 @@ class ApiASRClient:
 
         self.logger.info(
             "ASR finished.  text=%s",transcript)
-        
+
         return transcript
-    
+
     def _headers(self) -> dict[str,str]:
         if not self.api_key:
             return {}
         return {"Authorization":f"Bearer {self.api_key}"}
-    
+
     def _join_url(self,path:str) -> str:
         return f"{self.base_url}/{path.lstrip('/')}"
-    
+
     def _guess_content_type(self, path: Path) -> str:
         suffix = path.suffix.lower()
         if suffix == ".mp3":
@@ -85,7 +86,7 @@ class ApiASRClient:
         if suffix == ".ogg":
             return "audio/ogg"
         return "audio/wav"
-    
+
     def _extract_text(self, payload: Any) -> str:
         if isinstance(payload, dict):
             for key in ("text", "transcript", "result"):

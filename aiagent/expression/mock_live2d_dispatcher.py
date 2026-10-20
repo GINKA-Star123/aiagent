@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from aiagent.schemas.outputs import ResponsePacket
 from aiagent.graphs.metadata_utils import elapsed_ms, now_perf
+from aiagent.schemas.outputs import ResponsePacket
+
 
 class NoopLive2DDispatcher:
     def dispatch(self, packet: ResponsePacket) -> ResponsePacket:

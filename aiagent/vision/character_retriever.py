@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import faiss
 import numpy as np
 from PIL import Image
 
-from aiagent.vision.character_registry import CharacterRegistry
 from aiagent.graphs.graph_model import CharacterCandidate
+from aiagent.vision.character_registry import CharacterRegistry
 
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
@@ -118,7 +118,7 @@ class CharacterRetriever:
 
         best_by_character: dict[str, dict[str, Any]] = {}
 
-        for score, index in zip(scores[0].tolist(), indices[0].tolist()):
+        for score, index in zip(scores[0].tolist(), indices[0].tolist(), strict=True):
             if index < 0 or index >= len(self._records):
                 continue
 

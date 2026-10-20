@@ -44,7 +44,7 @@ class MemoryPolicyLLMService:
 
         if rule_decision is not None and not decision.should_store:
             decision = rule_decision
-            
+
         decision.metadata["planner_should_store_memory"] = planner_should_store_memory
         return decision
 
@@ -167,7 +167,7 @@ planner 信号：
             raise ValueError("No JSON object found.")
 
         parsed = json.loads(match.group(0))
-        
+
         if not isinstance(parsed, dict):
             raise ValueError("JSON root is not object.")
 

@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-
 OUT_PATH = Path("data/datasets/muice-dataset-train.catgirl.json")
 
 CORE_COUNT = 240
@@ -519,10 +518,14 @@ if len(tasks) < TASK_COUNT:
     for question, answer in all_task_pairs:
         if len(tasks) >= TASK_COUNT:
             break
-    for suffix, tail in task_suffixes:
+        for suffix, tail in task_suffixes:
             if len(tasks) >= TASK_COUNT:
                 break
-            builder.add(tasks, f"{question.rstrip('？')}，{suffix}", f"{answer}{tail}")
+            builder.add(
+                tasks,
+                f"{question.rstrip('？')}，{suffix}",
+                f"{answer}{tail}",
+            )
 
 
 def trim_or_fail(name: str, bucket: list[dict], count: int) -> list[dict]:

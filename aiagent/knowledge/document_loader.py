@@ -3,14 +3,17 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
 from langchain_core.documents import Document
+
 # 直接导入具体 splitter 模块，避免包根导入可选的 sentence-transformer
 # splitter；后者会在 API 启动时拉起较重的 ML 依赖。
 from langchain_text_splitters.character import RecursiveCharacterTextSplitter
 from langchain_text_splitters.markdown import MarkdownHeaderTextSplitter
+
 from aiagent.knowledge.character_aliases import (
     CHARACTER_ALIASES,
     CHARACTER_FILE_KEYS,
@@ -112,7 +115,7 @@ class DocumentLoader:
                     chunk_size=effective_chunk_size,
                     chunk_overlap=effective_overlap,
                 )
-        
+
             for chunk in chunks:
                 chunk.metadata["doc_kind"] = doc_kind
                 chunk.metadata["chunk_policy"] = (
@@ -307,7 +310,7 @@ class DocumentLoader:
             text=normalized,
             source_path=source_path,
         )
-        
+
         return Document(
             page_content=normalized,
             metadata={
@@ -387,7 +390,7 @@ class DocumentLoader:
             for variant in (canonical, *variants):
                 if variant and normalized == variant:
                     return canonical
-      
+
         for canonical, variants in CHARACTER_ALIASES.items():
             for variant in (canonical, *variants):
                 if variant and normalized.startswith(variant):
@@ -456,14 +459,14 @@ class DocumentLoader:
     @staticmethod
     def _file_updated_at(path: Path) -> str:
         try:
-            from datetime import datetime, timezone
+            from datetime import datetime
 
             mtime = path.stat().st_mtime
-            return datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat(timespec="seconds")
+            return datetime.fromtimestamp(mtime, tz=UTC).isoformat(timespec="seconds")
         except OSError:
             return ""
 
-    
+
     def _title_from_markdown_metadata(self, metadata: dict[str, Any]) -> str:
         parts = [
             str(metadata.get("h1", "")).strip(),

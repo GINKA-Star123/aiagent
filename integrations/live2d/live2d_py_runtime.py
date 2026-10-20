@@ -112,16 +112,16 @@ class Live2DPyRuntime:
                     return False
 
         return True
-    
+
 
     def create_session(self) ->Live2DModelSession:
         module =self._load_module()
         if module is None:
             raise RuntimeError(f"Python Live2D binding is not available {self._last_error}")
-        
+
         self._try_runtime_initialize()
         return Live2DModelSession(module)
-    
+
 
     def load_model_session(
             self,
@@ -138,7 +138,7 @@ class Live2DPyRuntime:
                 "prepared":prepared,
                 "session":None,
             }
-        
+
         try:
             session = self.create_session()
             session_state = session.load(
@@ -152,7 +152,7 @@ class Live2DPyRuntime:
                 "prepared":prepared,
                 "session":session_state,
             }
-        
+
         except Exception as exc:
             return {
                 "ok":False,

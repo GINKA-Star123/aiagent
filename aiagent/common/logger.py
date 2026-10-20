@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from aiagent.common.log_safety import sanitize_text
@@ -13,7 +13,6 @@ from apps.api.request_context import (
     get_request_method,
     get_request_path,
 )
-
 
 _STANDARD_RECORD_FIELDS = set(
     logging.LogRecord(
@@ -31,7 +30,7 @@ _STANDARD_RECORD_FIELDS = set(
 def _utc_timestamp(record: logging.LogRecord) -> str:
     value = datetime.fromtimestamp(
         record.created,
-        tz=timezone.utc,
+        tz=UTC,
     )
     return value.isoformat(timespec="milliseconds")
 

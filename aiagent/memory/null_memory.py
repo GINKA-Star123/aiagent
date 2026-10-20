@@ -1,9 +1,10 @@
-from __future__ import annotations 
+from __future__ import annotations
 
 from typing import Any
 
 from aiagent.memory.mem0_memory import MemoryHit
 from aiagent.schemas.memory import MemoryLayer, MemorySnapshot
+
 
 class NullLongTermMemory:
     def __init__(self,reason:str = "Long-term memory is disabled") ->None:

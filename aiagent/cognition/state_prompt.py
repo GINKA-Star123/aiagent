@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aiagent.persona.persona_runtime import PersonaRuntime
 
+
 class StateInferencePromptBuilder:
     @staticmethod
     def build(

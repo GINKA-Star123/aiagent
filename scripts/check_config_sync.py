@@ -67,8 +67,8 @@ def _env_name(field_name: str, field_info) -> str:
 
 def collect_settings_env() -> dict[str, str]:
     """返回 {环境变量名: 来源说明}。"""
-    from config.settings import Settings
     from cloud.config import CloudSettings
+    from config.settings import Settings
 
     mapping: dict[str, str] = {}
     for model, label in ((Settings, "config/settings.py"), (CloudSettings, "cloud/config.py")):

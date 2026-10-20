@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aiagent.graphs.graph_model import StateInferenceOutput
 
+
 class StateNormalizer:
     ALLOWED_EMOTIONS = {"neutral", "happy", "excited", "calm", "angry", "sad"}
     ALLOWED_INTENTS = {"chat", "comfort", "question", "continuation", "memory", "request", "sing", "identity"}
@@ -32,7 +33,7 @@ class StateNormalizer:
             context_summary=context_summary,
             reasoning=reasoning
         )
-    
+
     def _default_motion_for_emotion(self, emotion: str) -> str:
         if emotion == "happy":
             return "smile_nod"

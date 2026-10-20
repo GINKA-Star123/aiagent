@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime,timezone
-from typing import Any,Literal
+from datetime import UTC, datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
 
 DiagnosticStatus = Literal["ok","degraded","failed","skipped"]
 
@@ -22,14 +22,14 @@ class DiagnosticReport(BaseModel):
     summary:dict[str,int]
 
     @classmethod
-    def from_checks(cls,checks:list[DiagnosticCheck]) ->"DiagnosticReport":
+    def from_checks(cls,checks:list[DiagnosticCheck]) ->DiagnosticReport:
         counts = {
             "ok":0,
             "degraded":0,
             "failed":0,
             "skipped":0,
         }
-        
+
         for check in checks:
             counts[check.status] += 1
 
@@ -45,7 +45,7 @@ class DiagnosticReport(BaseModel):
         return cls(
             ok=status in {"ok","degraded"},
             status=status,
-            generated_at=datetime.now(timezone.utc).isoformat(),
+            generated_at=datetime.now(UTC).isoformat(),
             checks=checks,
             summary=counts,
         )

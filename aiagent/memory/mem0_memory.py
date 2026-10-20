@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime,timezone
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from threading import RLock
 from typing import Any
 from urllib.parse import urlparse
 
 from mem0 import Memory
 
-from aiagent.memory.memory_safety import MemorySafetyFilter
-from aiagent.memory.memory_layers import sort_memory_records
 from aiagent.memory.memory_layers import (
     build_memory_snapshot,
     infer_memory_layer,
     normalize_memory_record,
+    sort_memory_records,
 )
-from aiagent.schemas.memory import MemoryLayer, MemoryRecord, MemorySnapshot,MemoryCategory,MemoryImportance
+from aiagent.memory.memory_safety import MemorySafetyFilter
+from aiagent.schemas.memory import MemoryCategory, MemoryImportance, MemoryLayer, MemoryRecord, MemorySnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ class Mem0LongTermMemory:
             )
 
         normalized_embedder_provider = self._normalize_embedder_provider(embedder_provider)
-        
+
         embedder_config: dict[str, Any] = {
             "provider": normalized_embedder_provider,
             "config": {"model": embedder_model},
@@ -325,7 +325,7 @@ class Mem0LongTermMemory:
         target_layer = layer if isinstance(layer, MemoryLayer) else MemoryLayer(str(layer))
         records = self.list_records(user_id=user_id, agent_id=agent_id, limit=limit)
         return [record for record in records if record.layer == target_layer]
-    
+
     def list_profile_memories(
     self,
     user_id: str,
@@ -354,7 +354,7 @@ class Mem0LongTermMemory:
 
         pinned = [record for record in records if record.pinned and not record.archived]
         return pinned[: limit or 8]
-    
+
     def get_snapshot(
     self,
     user_id: str,
@@ -443,7 +443,7 @@ class Mem0LongTermMemory:
             "deleted_ids": deleted_ids,
             "errors": errors,
         }
-    
+
     def format_for_prompt(self, hits: list[MemoryHit]) -> str:
         if not hits:
             return NO_LONG_TERM_MEMORY_TEXT
@@ -653,7 +653,7 @@ class Mem0LongTermMemory:
             )
 
         updated = self.get_memory_record(memory_id=memory_id, user_id=user_id, agent_id=agent_id)
-        
+
         return {
             "ok":True,
             "status":"updated",
@@ -769,6 +769,6 @@ class Mem0LongTermMemory:
             "errors": errors,
             "record": update_result.get("record"),
         }
-    
+
     def _utc_now(self)->str:
-        return datetime.now(timezone.utc).isoformat()
+        return datetime.now(UTC).isoformat()

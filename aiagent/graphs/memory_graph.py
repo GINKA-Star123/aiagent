@@ -1,27 +1,12 @@
 from __future__ import annotations
 
-import uuid
 import logging
-from typing import Any,TypedDict
-from datetime import datetime, timezone
+import uuid
+from datetime import UTC, datetime
+from typing import Any, TypedDict
 
-from aiagent.memory.memory_write_audit import MemoryWriteAuditLog
-from aiagent.memory.memory_write_dispatcher import MemoryWriteDispatcher
-from aiagent.schemas.memory import (
-    MemoryCategory,
-    MemoryImportance,
-    MemorySensitivity,
-    MemoryWriteAudit,
-)
-from langgraph.graph import START,END,StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from aiagent.memory.memory_preferences import MemoryPreferenceStore
-from aiagent.memory.mem0_memory import Mem0LongTermMemory,MemoryHit
-from aiagent.memory.memory_intake import MemoryIntakeService
-from aiagent.memory.memory_prompt import MemoryPromptBuilder
-from aiagent.schemas.memory import MemoryWriteDecision,MemoryStorePlan,MemoryRecord
-from aiagent.services.memory_policy_llm_service import MemoryPolicyLLMService
-from aiagent.memory.memory_layers import infer_memory_layer
 from aiagent.graphs.degradation import (
     build_degraded_memory_retrieve_state,
     build_degraded_memory_store_state,
@@ -32,6 +17,23 @@ from aiagent.graphs.metadata_utils import (
     mark_stage_skipped,
     now_perf,
 )
+from aiagent.memory.mem0_memory import Mem0LongTermMemory, MemoryHit
+from aiagent.memory.memory_intake import MemoryIntakeService
+from aiagent.memory.memory_layers import infer_memory_layer
+from aiagent.memory.memory_preferences import MemoryPreferenceStore
+from aiagent.memory.memory_prompt import MemoryPromptBuilder
+from aiagent.memory.memory_write_audit import MemoryWriteAuditLog
+from aiagent.memory.memory_write_dispatcher import MemoryWriteDispatcher
+from aiagent.schemas.memory import (
+    MemoryCategory,
+    MemoryImportance,
+    MemoryRecord,
+    MemorySensitivity,
+    MemoryStorePlan,
+    MemoryWriteAudit,
+    MemoryWriteDecision,
+)
+from aiagent.services.memory_policy_llm_service import MemoryPolicyLLMService
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +150,7 @@ class MemoryRunner:
                     memory_error=str(exc),
                 ),
             )
-        
+
     def run_after_reply(
             self,
             user_id:str,
@@ -199,7 +201,7 @@ class MemoryRunner:
                 }
             )
             self._append_audit(state) # type: ignore
-            return state # type:ignore 
+            return state # type:ignore
         except Exception as exc:
             self._append_audit_failure(
                 user_id=user_id,
@@ -209,7 +211,7 @@ class MemoryRunner:
                 error=str(exc),
             )
             return build_degraded_memory_store_state( # type: ignore
-                user_id=user_id, 
+                user_id=user_id,
                 agent_id=agent,
                 error=exc,
                 metadata=mark_stage_failed(
@@ -311,7 +313,7 @@ class MemoryRunner:
             "count": total,
             "records": [record.model_dump(mode="json") for record in records],
         }
-    
+
     def _retrieve_node(self, state: MemoryGraphState) -> MemoryGraphState:
         started_at = now_perf()
         query = state.get("retrieval_query", "") or state.get("user_text", "")
@@ -475,7 +477,7 @@ class MemoryRunner:
             "memory_store_plan": plan,
             "metadata": metadata,
         }
-    
+
     def _route_after_decision(self,state:MemoryGraphState) ->str:
         decision = state.get("write_decision") # type: ignore
         return "store" if decision and decision.should_store else "end"
@@ -483,7 +485,7 @@ class MemoryRunner:
     def _route_after_guard(self,state:MemoryGraphState) ->str:
         plan = state.get("memory_store_plan") # type: ignore
         return "store" if plan and plan.should_store else "end"
-    
+
     def _store_node(self, state: MemoryGraphState) -> MemoryGraphState:
         started_at = now_perf()
         plan = state["memory_store_plan"] # type: ignore
@@ -673,8 +675,8 @@ class MemoryRunner:
             logger.warning("Failed to append memory write audit: %s", exc)
 
     def _utc_now(self) -> str:
-        return datetime.now(timezone.utc).isoformat()
-    
+        return datetime.now(UTC).isoformat()
+
     def _merge_hits(self, hits: list[MemoryHit]) -> list[MemoryHit]:
         seen_ids: set[str] = set()
         seen_texts: set[str] = set()

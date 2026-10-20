@@ -24,7 +24,7 @@ async def require_cloud_admin(
                 "stage":"cloud_admin_auth",
                 "error":"CLOUD_ADMIN_TOKEN is not configured",
             },
-        ) 
+        )
 
     if not provided or not compare_digest(provided,expected):
         raise HTTPException(

@@ -7,7 +7,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from cloud.config import cloud_settings
 from cloud.redis_client import get_redis_client
 
 
@@ -50,7 +49,7 @@ def _as_float(value:Any) -> float:
 
     text = str(value).strip()
     if not text:
-        return 0.0  
+        return 0.0
 
     try:
         return float(text)
@@ -214,7 +213,7 @@ class CloudTaskQueue:
 
         try:
             task_id = await asyncio.wait_for(_memory_store.queue.get(), timeout=timeout_seconds)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
 
         async with _memory_store.lock:
@@ -236,11 +235,11 @@ class CloudTaskQueue:
             await redis.hset(
                 self._task_key(task_id),
                 mapping={
-                    "status": "running", 
-                    "started_at": started_at, 
+                    "status": "running",
+                    "started_at": started_at,
                     "first_started_at": first_started_at,
                     "last_attempt_started_at": now,
-                    "updated_at": now, 
+                    "updated_at": now,
                     "worker_id": worker_id,
                     "error": "",
                     "dead_reason": "",
@@ -302,7 +301,7 @@ class CloudTaskQueue:
 
         await self._release_unique(task)
 
-    
+
     async def fail_or_retry(self, task_id: str, error: str) -> TaskFailureResult:
         task = await self.get(task_id)
         if not task:
@@ -430,7 +429,7 @@ class CloudTaskQueue:
 
         await self._release_unique(task)
 
-    
+
     async def recover_stale_running(self, queue: str, stale_seconds: int = 1800) -> int:
         redis = await get_redis_client()
         now = time.time()

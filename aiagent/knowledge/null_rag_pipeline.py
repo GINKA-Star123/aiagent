@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+
 class NullRAGPipeline:
     def __init__(self,reason:str = "RAG pipeline is disabled.") -> None:
         self.reason = reason
@@ -54,7 +55,7 @@ class NullRAGPipeline:
             "manifest_path": "",
             "checked_at": "",
         }
-    
+
     def stats(self) -> dict[str, Any]:
         return {
             "ok": False,

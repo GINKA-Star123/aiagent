@@ -6,6 +6,7 @@ import numpy as np
 import sounddevice as sd
 from scipy.io.wavfile import write
 
+
 class MicrophoneRecorder:
     def __init__(
             self,

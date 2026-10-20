@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel,Field
+from pydantic import BaseModel, Field
 
 from aiagent.schemas.inputs import InputEvent
 from aiagent.schemas.outputs import OutputEvent
+
 
 class ConversationState(BaseModel):
     recent_inputs : list[InputEvent] = Field(default_factory=list)
@@ -19,7 +20,7 @@ class ConversationState(BaseModel):
     last_user_emotion_hint : str ="neutral"
     last_strategy: str = ""
     last_topic_shift : bool = False
-    
+
     def add_input(self,event:InputEvent) -> None:
         self.recent_inputs.append(event)
         self.recent_inputs = self.recent_inputs[-self.max_turns:]
@@ -43,7 +44,7 @@ class ConversationState(BaseModel):
                 deduped.append(item)
         self.recent_keywords = deduped[-10:]
 
-    
+
     def add_output(self,event:OutputEvent) -> None:
         self.recent_outputs.append(event)
         self.recent_outputs = self.recent_outputs[-self.max_turns:]
@@ -52,7 +53,7 @@ class ConversationState(BaseModel):
         if planner_strategy:
             self.last_strategy = planner_strategy
 
-    
+
     def recent_dialogue_pairs(self, limit: int = 4, session_id: str = "") -> list[dict]:
         """最近若干轮"用户输入 + 助手回复"配对。
 
@@ -151,11 +152,11 @@ class ConversationState(BaseModel):
             )
 
         return pairs
-    
+
     def prompt_summary(self) ->str:
         if not self.recent_inputs:
             return "暂无连续对话上下文"
-        
+
         lines = [
             f"当前话题：{self.current_topic}",
             f"最近关键词：{', '.join(self.recent_keywords) if self.recent_keywords else '无'}",
@@ -165,7 +166,7 @@ class ConversationState(BaseModel):
             f"本轮是否切换话题：{'是' if self.last_topic_shift else '否'}",
         ]
         return "\n".join(lines)
-    
+
 
     def snapshot(self) -> dict:
         return {
@@ -177,7 +178,7 @@ class ConversationState(BaseModel):
             "本轮是否转换话题":self.last_topic_shift,
             "最近轮数":len(self.recent_inputs)
         }
-    
+
     def clear(self) -> None:
         self.recent_inputs.clear()
         self.recent_outputs.clear()

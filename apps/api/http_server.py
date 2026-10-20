@@ -4,25 +4,22 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from starlette.staticfiles import StaticFiles
 
 from aiagent.perception.voice_call_store import (
     VoiceCallStoreConflictError,
     VoiceCallStoreUnavailableError,
 )
-
-from apps.api.response_utils import error_message_response
 from apps.api.exception_handlers import (
     http_exception_handler,
     validation_exception_handler,
 )
-from cloud.config import cloud_settings
-from cloud.middleware import cloud_guard_middleware
 from apps.api.http_security import build_cors_policy
 from apps.api.middleware import request_logging_middleware
+from apps.api.response_utils import error_message_response
 from apps.api.routes.audio import router as audio_router
 from apps.api.routes.chat import router as chat_router
 from apps.api.routes.cloud import router as cloud_router
@@ -30,17 +27,19 @@ from apps.api.routes.cloud_gpu import router as cloud_gpu_router
 from apps.api.routes.cloud_ops import router as cloud_ops_router
 from apps.api.routes.cloud_tasks import router as cloud_tasks_router
 from apps.api.routes.control import router as control_router
+from apps.api.routes.dashboard import router as dashboard_router
 from apps.api.routes.diagnostics import router as diagnostics_router
 from apps.api.routes.health import router as health_router
 from apps.api.routes.knowledge import router as knowledge_router
 from apps.api.routes.live2d import router as live2d_router
 from apps.api.routes.memory import router as memory_router
 from apps.api.routes.multimodal_chat import router as multimodal_chat_router
+from apps.api.routes.session import router as session_router
 from apps.api.routes.vision import router as vision_router
 from apps.api.routes.voice import router as voice_router
 from apps.api.routes.voice_realtime import router as voice_realtime_router
-from apps.api.routes.session import router as session_router
-from apps.api.routes.dashboard import router as dashboard_router
+from cloud.config import cloud_settings
+from cloud.middleware import cloud_guard_middleware
 from config.settings import settings
 
 logger = logging.getLogger("aiagent.api")

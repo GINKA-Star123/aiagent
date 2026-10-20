@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from dataclasses import asdict,dataclass
+from dataclasses import asdict, dataclass
 from threading import Lock
 from typing import Any
 
-@dataclass 
+
+@dataclass
 class RequestMetric:
     request_id:str
     method:str
@@ -29,7 +30,7 @@ class MetricsStore:
         self._requests :deque[RequestMetric] = deque(maxlen=max_items)
         self._started_at=time.time()
         self._external:deque[ExternalServiceMetric] = deque(maxlen=max_items)
-    
+
     def record_request(
             self,
             *,
@@ -128,5 +129,5 @@ class MetricsStore:
             "recent_requests":[asdict(item) for item in requests[:80]],
             "external_services":self.external_snapshot(),
         }
-    
+
 metrics_store = MetricsStore()

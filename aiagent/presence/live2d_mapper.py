@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from aiagent.presence.models import Live2DPresencePayload, OpeningKind, PresenceState
+from aiagent.presence.models import Live2DPresencePayload, MoodState, OpeningKind, PresenceState
 from aiagent.presence.rhythm import mood_label
-from aiagent.presence.models import MoodState
 
 
 def build_live2d_presence(

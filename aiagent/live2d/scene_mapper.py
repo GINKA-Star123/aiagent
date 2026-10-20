@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 class Live2DSceneMapper:
     def scene_from_context(
         self,

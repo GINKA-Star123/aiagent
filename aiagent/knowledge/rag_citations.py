@@ -5,6 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+
 class RAGCitation(BaseModel):
     citation_id: str
     rank: int

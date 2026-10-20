@@ -6,7 +6,6 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-
 REDACTED = "[redacted]"
 TRUNCATED = "[truncated]"
 

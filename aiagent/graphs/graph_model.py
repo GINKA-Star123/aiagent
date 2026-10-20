@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
 from enum import StrEnum
+from typing import Any
 
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -307,7 +307,7 @@ class VisionAnalyzeResult(BaseModel):
 
     raw_model_output: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
-    
+
 
 class LLMGraphInput(BaseModel):
     thread_id: str
@@ -362,5 +362,5 @@ class LLMGraphResult(BaseModel):
     retrieved_context: list[str] = Field(default_factory=list)
     short_term_messages: list[str] = Field(default_factory=list)
     long_term_memory_context: str = NO_LONG_TERM_MEMORY_TEXT
-    
+
     metadata: dict[str, str] = Field(default_factory=dict)

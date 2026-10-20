@@ -51,5 +51,5 @@ class SessionManager:
 
         if from_metadata:
             return from_metadata
-        
+
         return f"{session_id}:{str(uuid4())[:8]}"

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from faster_whisper import WhisperModel
 
+
 class FasterWhisperClient:
     def __init__(
             self,
@@ -36,7 +37,7 @@ class FasterWhisperClient:
 
         if not path.exists():
             raise FileNotFoundError(f"Audio file not found:{path}")
-        
+
         self.logger.info("Transcribing audio with faster-whisper %s",path)
 
         segments, info = self.model.transcribe(
@@ -58,5 +59,5 @@ class FasterWhisperClient:
             getattr(info, "duration", "unknown"),
             transcript,
         )
-        
+
         return transcript
