@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import pytest
+
 from apps.core.runtime_registry import get_runtime, reset_runtime
+
+pytestmark = pytest.mark.usefixtures("offline_runtime_assets")
 
 
 def test_mock_runtime_can_build():

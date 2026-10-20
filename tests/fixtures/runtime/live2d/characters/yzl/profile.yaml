@@ -1,0 +1,19 @@
+# Payload-only fixture. No actual Live2D model is distributed or rendered.
+character_id: yzl
+model_id: test_yzl
+display_name: Test Assistant
+model3_json: ""
+default_expression: neutral
+default_motion: idle
+expressions:
+  - expression_id: neutral
+    file: ""
+  - expression_id: gentle
+    file: ""
+motions:
+  - motion_id: idle
+    group: idle
+    file: ""
+  - motion_id: soft_idle
+    group: idle
+    file: ""

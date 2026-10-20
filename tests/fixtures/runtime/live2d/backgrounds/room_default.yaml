@@ -1,0 +1,4 @@
+# Payload-only fixture; rendering assets are intentionally absent.
+background_id: room_default
+display_name: Test Room
+file: ""

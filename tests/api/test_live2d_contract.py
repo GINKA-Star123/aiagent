@@ -38,6 +38,7 @@ def test_live2d_preview_contract(api_client):
     assert_live2d_payload_contract(data["payload"])
     payload = data["payload"]
     assert payload["version"] == "1.0"
+    assert payload["character"]["model_id"] == "test_yzl"
     assert payload["metadata"]["test"] == "contract"
     assert payload["character"]["emotion"] == "calm"
     assert payload["character"]["motion_group"]

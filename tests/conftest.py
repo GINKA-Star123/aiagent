@@ -5,6 +5,7 @@ import re
 import shutil
 import tempfile
 import uuid
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -87,16 +88,50 @@ def tmp_path(request: pytest.FixtureRequest) -> Path:
 
 
 @pytest.fixture()
-def api_client():
+def offline_runtime_assets(monkeypatch, tmp_path: Path):
+    """用合成配置和临时视觉目录隔离本机未入库数据，不替换实际业务链路。"""
+    from aiagent.live2d.registry import Live2DRegistry
+    from aiagent.persona.persona_loader import PersonaLoader
+    from apps.api.routes import live2d
+    from apps.core import bootstrap
+    from apps.core.runtime_registry import reset_runtime
+
+    fixture_root = _TEST_ROOT / "tests" / "fixtures" / "runtime"
+    monkeypatch.setattr(
+        bootstrap, "PersonaLoader", partial(PersonaLoader, base_dir=fixture_root / "persona")
+    )
+    registry_factory = partial(
+        Live2DRegistry,
+        character_root=fixture_root / "live2d" / "characters",
+        background_root=fixture_root / "live2d" / "backgrounds",
+    )
+    monkeypatch.setattr(live2d, "_build_registry", registry_factory)
+    for field, directory in {
+        "vision_character_root_dir": "characters",
+        "vision_character_index_dir": "character_index",
+        "vision_upload_dir": "uploads",
+    }.items():
+        monkeypatch.setattr(bootstrap.settings, field, str(tmp_path / directory))
+
+    reset_runtime()
+    try:
+        yield
+    finally:
+        reset_runtime()
+
+
+@pytest.fixture()
+def api_client(offline_runtime_assets):
     from apps.api.http_server import app
     from apps.core.runtime_registry import reset_runtime
 
     reset_runtime()
 
-    with TestClient(app) as client:
-        yield client
-
-    reset_runtime()
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        reset_runtime()
 
 
 @pytest.fixture()

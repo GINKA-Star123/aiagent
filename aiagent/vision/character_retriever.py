@@ -57,12 +57,15 @@ class CharacterRetriever:
             self._load_index()
             return self.stats()
 
-        model = self._get_model()
+        model: SentenceTransformer | None = None
         records: list[dict[str, Any]] = []
         vectors: list[np.ndarray] = []
 
         for profile in self.registry.all_profiles():
             for image_path in profile.image_paths:
+                # 空图库不需要模型；模型加载失败仍应明确上报，不能当作坏图片忽略。
+                if model is None:
+                    model = self._get_model()
                 try:
                     vector = self._embed_image(model=model, image_path=image_path)
                 except Exception as exc:
@@ -191,7 +194,7 @@ class CharacterRetriever:
         }
 
     def _ensure_loaded(self) -> None:
-        if self._index is not None and self._records:
+        if self._index is not None:
             return
 
         if self.index_path.exists() and self.records_path.exists():
