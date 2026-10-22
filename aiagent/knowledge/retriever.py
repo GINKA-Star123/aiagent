@@ -62,10 +62,11 @@ class HybridRetriever:
         标识头来自 document_loader 推断出的 metadata，只包含名称类 token，
         不含语义描述，避免稀释相关性。
 
-        额外补一类 token：文件名词干。原因：
-        _tokenize 不会把 "producer.md" 拆成 ["producer", "md"]，
+        额外补一类 token：完整文件名词干。原因：
+        _tokenize 会把 "producer.md" 当作整体，
         而很多文档正文里根本不含英文名（例如 producer.md 正文 0 次 "producer"），
-        导致英文查询永远命中不到它。这里把 stem 按非字母数字切分后再注入一遍。
+        导致英文查询命中不到它。这里额外注入完整 stem，再统一交给 _tokenize。
+        不拆开标识中的下划线等字符，避免 starlight_alt 被错误添加 starlight 别名。
         """
         metadata = dict(doc.metadata or {})
         parts: list[str] = []
@@ -80,11 +81,10 @@ class HybridRetriever:
             if isinstance(values, (list, tuple)):
                 parts.extend(str(item).strip() for item in values if str(item).strip())
 
-        # 文件名词干（producer.md -> producer / md）
+        # 文件名只去扩展名，保留复合标识（producer.md -> producer）。
         file_stem = Path(str(metadata.get("file_name") or "")).stem
-        parts.extend(
-            token for token in re.split(r"[^0-9A-Za-z]+", file_stem) if token
-        )
+        if file_stem:
+            parts.append(file_stem)
 
         header = " ".join(dict.fromkeys(part for part in parts if part))
 
@@ -106,17 +106,24 @@ class HybridRetriever:
 
         return Document(page_content=str(raw_content),metadata=metadata)
 
-    def retrieve(self, query: str, vector_store: LangChainVectorStore, top_k: int = 10) -> list[RetrievedChunk]:
+    def retrieve(
+        self,
+        query: str,
+        vector_store: LangChainVectorStore,
+        top_k: int = 10,
+    ) -> list[RetrievedChunk]:
         query = query.strip()
         if not query:
             return []
-
         candidates: list[_Candidate] = []
-
+        query_terms = set(self._tokenize(query))
         if self.bm25_retriever is not None:
             for rank, doc in enumerate(self.bm25_retriever.invoke(query), start=1):
-                candidates.append(_Candidate(doc=self._restore_document(doc), source="bm25", rank=rank))
-
+                restored = self._restore_document(doc)
+                document_terms = set(self._tokenize(self._searchable_text(restored)))
+                if not query_terms.intersection(document_terms):
+                    continue
+                candidates.append(_Candidate(doc=restored, source="bm25", rank=rank))
         for rank, (doc, cosine_score) in enumerate(
             vector_store.similarity_search_with_score(query, k=self.vector_top_k),
             start=1,
@@ -124,7 +131,6 @@ class HybridRetriever:
             candidates.append(
                 _Candidate(doc=doc, source="vector", rank=rank, cosine_score=cosine_score)
             )
-
         return self._fuse(candidates, top_k=top_k)
 
     def _fuse(self, candidates: list[_Candidate], top_k: int) -> list[RetrievedChunk]:

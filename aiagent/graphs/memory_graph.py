@@ -86,21 +86,16 @@ class MemoryRunner:
         graph = StateGraph(MemoryGraphState)
         graph.add_node("retrieve",self._retrieve_node)
         graph.add_node("decide_write",self._decide_write_node)
-        graph.add_node("store",self._store_node)
         graph.add_node("guard_write",self._guard_write_node)
+        graph.add_node("store",self._store_node)
 
         graph.add_edge(START,"retrieve")
         graph.add_edge("retrieve","decide_write")
         graph.add_edge("decide_write","guard_write")
         graph.add_conditional_edges(
-            "decide_write",
-            self._route_after_decision,
-            {"store":"store","end":END}
-        )
-        graph.add_conditional_edges(
             "guard_write",
             self._route_after_guard,
-            {"store": "store", "end": END},
+            {"store":"store","end":END}
         )
         graph.add_edge("store",END)
         return graph.compile()

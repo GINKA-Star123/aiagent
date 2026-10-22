@@ -89,17 +89,7 @@ class LLMService:
             return fallback_text
 
         try:
-            if self.settings.llm_provider == LLMProvider.LMSTUDIO:
-                content = self._invoke_lmstudio(messages)
-            else:
-                response = self.get_chat_model().invoke(list(messages))
-                content = self._normalize_content(getattr(response, "content", response))
-
-            if not content:
-                raise RuntimeError("LLM returned empty content.")
-
-            return content
-
+            return self.invoke_messages_strict(messages)
         except Exception as exc:
             self.logger.exception("LLM invoke failed: %s", exc)
             return fallback_text
@@ -124,6 +114,21 @@ class LLMService:
             mode=mode,
             persona_name=persona_name,
         )
+
+    def invoke_messages_strict(self, messages: Sequence[BaseMessage]) -> str:
+        if self.settings.enable_mock_llm or self.settings.llm_provider == LLMProvider.MOCK:
+            raise RuntimeError("strict invocation does not allow mock LLM")
+        if self.settings.llm_provider == LLMProvider.LMSTUDIO:
+            content = self._invoke_lmstudio(messages)
+        else:
+            response = self.get_chat_model().invoke(list(messages))
+            raw = getattr(response,"content",response)
+            if not isinstance(raw,(str,list)):
+                raise TypeError("LLM returneda unsupported content type")
+            content = self._normalize_content(raw)
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError("LLM returned empty content.")
+        return content.strip()
 
     def _invoke_lmstudio(self, messages: Sequence[BaseMessage]) -> str:
         _, base_url, _ = self._resolve_provider_config()

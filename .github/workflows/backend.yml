@@ -39,6 +39,17 @@ jobs:
           uv run --locked ruff check aiagent apps/core apps/api apps/worker cloud config integrations scripts tests
       - run: uv run --locked pytest tests/unit -m "not integration" -q
       - run: uv run --locked pytest tests/api tests/smoke -m "not integration" -q
+      - name: Agent offline quality gate
+        timeout-minutes: 20
+        run: uv run --locked --extra dev python -m aiagent.knowledge.evaluation.agent_quality --mode offline
+      - name: Archive Agent quality evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-quality-offline-${{ github.run_id }}-${{ github.run_attempt }}
+          path: data/cache/reports/agent_quality/
+          if-no-files-found: warn
+          retention-days: 14
       - run: docker build -f deploy/Dockerfile.api -t aiagent-api:v12-ci .
       - run: docker build -f deploy/Dockerfile.worker -t aiagent-worker:v12-ci .
       - name: Verify container runtime

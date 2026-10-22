@@ -22,7 +22,7 @@ INDEX_MANIFEST_SCHEMA_VERSION = 1
 # 与 HybridRetriever._searchable_text / _tokenize 的实现绑定：
 # 只要分词或"可检索文本"的构造方式变了（例如上一批次把文件名词干注入 header），
 # 就必须把这个版本号 +1，否则旧索引不会被判定为过期。
-TOKENIZER_VERSION = "bm25-zh-ngram-v2"
+TOKENIZER_VERSION = "bm25-zh-ngram-v4"
 
 # 超过 4MB 的文件不计算 sha1（省启动时间），退化为 size+mtime 判定。
 _HASH_READ_LIMIT = 4 * 1024 * 1024

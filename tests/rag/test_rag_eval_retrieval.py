@@ -31,4 +31,8 @@ def test_smoke_retrieval_and_rerank(rag_eval_pipeline) -> None:
         if result.stages.get("rerank") and not result.stages["rerank"].details.get(
             "skipped"
         ):
-            assert result.stages["rerank"].details["top1_source"]
+            assert result.stages["rerank"].details["top1_source"], (
+                result.case_id,
+                result.query,
+                result.stages["rerank"].failures,
+            )

@@ -162,9 +162,13 @@ def corpus_snapshot(knowledge_dir: str | Path) -> dict[str, object]:
         raise FileNotFoundError(f"knowledge directory not found: {root}")
 
     files = sorted(
-        path
-        for path in root.rglob("*")
-        if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES
+        (
+            path
+            for path in root.rglob("*")
+            if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES
+        ),
+        # Path 的大小写排序依赖平台，使用 POSIX 相对路径字符串固定语料指纹。
+        key=lambda path: path.relative_to(root).as_posix(),
     )
     digest = hashlib.sha256()
     total_bytes = 0

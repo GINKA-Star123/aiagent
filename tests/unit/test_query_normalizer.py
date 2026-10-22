@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from aiagent.knowledge.query_normalizer import (
     expand_domain_terms,
     normalize_aliases,
@@ -33,6 +35,19 @@ def test_normalize_aliases_keeps_unrelated_query_unchanged():
     query = "今天天气怎么样"
 
     assert normalize_aliases(query) == query
+
+
+@pytest.mark.parametrize(("alias", "canonical", "english"), [
+    ("绫妹", "乐正绫", "YueZhengling"),
+    ("牙哥", "乐正龙牙", "YueZhenglongya"),
+    ("阿和", "言和", "YanHe"),
+])
+def test_short_character_alias_query_expands_and_remains_idempotent(alias, canonical, english):
+    normalized = normalize_rag_query(f"{alias}是谁")
+
+    assert canonical in normalized.split()
+    assert english in normalized.split()
+    assert normalize_rag_query(normalized) == normalized
 
 
 def test_expand_domain_terms_adds_fan_chant_terms():

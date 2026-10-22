@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from aiagent.knowledge.index_manifest import (
     build_index_manifest,
     evaluate_index_freshness,
@@ -91,6 +93,21 @@ def test_manifest_flags_chunk_policy_change(tmp_path):
 
     assert report.stale is True
     assert "chunk_policy_changed" in report.reasons
+
+
+@pytest.mark.parametrize("legacy_version", ["bm25-zh-ngram-v2", "bm25-zh-ngram-v3"])
+def test_manifest_flags_legacy_filename_tokenization(tmp_path, legacy_version):
+    knowledge = tmp_path / "knowledge"
+    knowledge.mkdir()
+    (knowledge / "starlight_alt.txt").write_text("reference", encoding="utf-8")
+    manifest_path = tmp_path / "index_manifest.json"
+    manifest = _build(knowledge, manifest_path)
+    legacy_manifest = manifest.model_copy(update={"tokenizer_version": legacy_version})
+
+    report = _check(legacy_manifest, manifest_path, knowledge)
+
+    assert report.stale is True
+    assert "tokenizer_version_changed" in report.reasons
 
 
 def test_manifest_flags_knowledge_file_changes(tmp_path):

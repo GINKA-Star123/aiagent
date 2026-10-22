@@ -1,0 +1,135 @@
+{
+  "version": "agent-eval-v1",
+  "documents": {
+    "starlight.txt": "合成评测资料，不代表任何现实角色。starlight starling color birthday。星澜的英文标识是 starlight，别名是 starling。星澜的代表色为星蓝，生日为4月12日。不要将星澜和星岚混淆。",
+    "starlight_alt.txt": "合成评测资料。starlightalt color birthday。星岚的唯一英文标识是 starlightalt，代表色为暗红，生日为5月20日。这是与另一角色不同的独立合成角色。",
+    "food.txt": "合成餐饮资料。dinner noodles vegetable。面条可以搭配蔬菜和鸡蛋，此文档只描述晚餐食材，不包含角色生日与代表色信息。",
+    "weather.txt": "合成天气资料。forecast rain umbrella。预计下午有雨，外出可以携带雨伞。此处没有实时气象数据，不应当作正式天气预报。",
+    "music.txt": "合成音乐资料。rhythm melody meter。节奏用于组织音符的时值与重音，旋律由有组织的音高构成。这里仅用于提供无关的检索干扰文档。",
+    "manual.txt": "合成安装资料。installation package setup。先确认运行环境，再安装所需软件包，最后检查配置是否完整。此文档不包含账号密码、个人信息或生产部署地址。"
+  },
+  "retrieval_cases": [
+    {
+      "case_id": "rag-fact", "suite": "smoke", "category": "synthetic-fact",
+      "query": "starlight", "stages": ["retrieval", "rerank", "injection", "prompt"],
+      "retrieval": {"expected_source_paths": ["starlight.txt"], "forbidden_source_paths": ["starlight_alt.txt"], "expected_content_terms": ["星蓝"], "top_k": 1, "max_rank": 1},
+      "rerank": {"expected_top1_source_paths": ["starlight.txt"]},
+      "injection": {"should_inject": true, "allowed_levels": ["medium", "high"], "allowed_statuses": ["passed"], "min_citations": 1, "max_citations": 1, "required_citation_sources": ["starlight.txt"]},
+      "prompt": {"required_terms": ["星蓝"], "forbidden_terms": ["暗红"], "max_chars": 6000}
+    },
+    {
+      "case_id": "rag-alias", "suite": "smoke", "category": "synthetic-alias",
+      "query": "starling", "stages": ["retrieval", "rerank", "injection", "prompt"],
+      "retrieval": {"expected_source_paths": ["starlight.txt"], "forbidden_source_paths": ["starlight_alt.txt"], "expected_content_terms": ["星蓝"], "top_k": 1, "max_rank": 1},
+      "rerank": {"expected_top1_source_paths": ["starlight.txt"]},
+      "injection": {"should_inject": true, "allowed_levels": ["medium", "high"], "allowed_statuses": ["passed"], "min_citations": 1, "max_citations": 1, "required_citation_sources": ["starlight.txt"]},
+      "prompt": {"required_terms": ["星蓝"], "forbidden_terms": ["暗红"], "max_chars": 6000}
+    },
+    {
+      "case_id": "rag-birthday", "suite": "smoke", "category": "synthetic-birthday",
+      "query": "starling birthday", "stages": ["retrieval", "rerank", "injection", "prompt"],
+      "retrieval": {"expected_source_paths": ["starlight.txt"], "forbidden_source_paths": ["starlight_alt.txt"], "expected_content_terms": ["4月12日"], "top_k": 1, "max_rank": 1},
+      "rerank": {"expected_top1_source_paths": ["starlight.txt"]},
+      "injection": {"should_inject": true, "allowed_levels": ["medium", "high"], "allowed_statuses": ["passed"], "min_citations": 1, "max_citations": 1, "required_citation_sources": ["starlight.txt"]},
+      "prompt": {"required_terms": ["4月12日"], "forbidden_terms": ["5月20日"], "max_chars": 6000}
+    },
+    {
+      "case_id": "rag-confusable", "suite": "smoke", "category": "synthetic-confusable",
+      "query": "starlightalt", "stages": ["retrieval", "rerank", "injection", "prompt"],
+      "retrieval": {"expected_source_paths": ["starlight_alt.txt"], "forbidden_source_paths": ["starlight.txt"], "expected_content_terms": ["暗红"], "top_k": 1, "max_rank": 1},
+      "rerank": {"expected_top1_source_paths": ["starlight_alt.txt"]},
+      "injection": {"should_inject": true, "allowed_levels": ["medium", "high"], "allowed_statuses": ["passed"], "min_citations": 1, "max_citations": 1, "required_citation_sources": ["starlight_alt.txt"]},
+      "prompt": {"required_terms": ["暗红"], "forbidden_terms": ["星蓝"], "max_chars": 6000}
+    },
+    {
+      "case_id": "rag-unknown", "suite": "smoke", "category": "synthetic-empty",
+      "query": "zzqvnotindataset", "stages": ["retrieval", "rerank", "injection", "prompt"],
+      "retrieval": {"forbidden_source_paths": ["starlight.txt", "starlight_alt.txt", "food.txt", "weather.txt", "music.txt", "manual.txt"], "top_k": 1},
+      "rerank": {},
+      "injection": {"should_inject": false, "allowed_levels": ["none"], "allowed_statuses": ["empty"], "min_citations": 0, "max_citations": 0},
+      "prompt": {"expect_empty": true, "max_chars": 6000}
+    }
+  ],
+  "answer_cases": [
+    {
+      "case_id": "rag_color", "domain": "rag", "retrieval_case_id": "rag-fact",
+      "query": "资料中星澜的代表色是什么？只输出颜色。",
+      "required_terms": ["星蓝"], "forbidden_terms": ["暗红"],
+      "reference_answer": "星蓝", "contrast_answer": "暗红"
+    },
+    {
+      "case_id": "rag_alias", "domain": "rag", "retrieval_case_id": "rag-alias",
+      "query": "资料中别名 starling 对应谁？只输出中文名字。",
+      "required_terms": ["星澜"], "forbidden_terms": ["星岚"],
+      "reference_answer": "星澜", "contrast_answer": "星岚"
+    },
+    {
+      "case_id": "rag_distinction", "domain": "rag", "retrieval_case_id": "rag-confusable",
+      "query": "资料中 starlightalt 的代表色是什么？只输出颜色。",
+      "required_terms": ["暗红"], "forbidden_terms": ["星蓝"],
+      "reference_answer": "暗红", "contrast_answer": "星蓝"
+    },
+    {
+      "case_id": "rag_unknown", "domain": "rag", "retrieval_case_id": "rag-unknown",
+      "query": "zzqvnotindataset 的生日是什么？若外部知识没有相关资料，只输出资料不足。",
+      "required_terms": ["资料不足"], "forbidden_terms": ["4月12日", "5月20日"],
+      "reference_answer": "资料不足", "contrast_answer": "生日是4月12日"
+    },
+    {
+      "case_id": "memory_preference", "domain": "memory",
+      "query": "根据长期记忆，我喜欢哪种菜系？只输出菜系名。",
+      "memory_facts": ["用户喜欢川菜。"],
+      "required_terms": ["川菜"], "forbidden_terms": ["粤菜"],
+      "reference_answer": "川菜", "contrast_answer": "粤菜"
+    },
+    {
+      "case_id": "memory_conflict", "domain": "memory",
+      "query": "我以前喜欢川菜，但现在喜欢粤菜了。现在我喜欢哪种菜系？只输出菜系名。",
+      "memory_facts": ["用户喜欢川菜。"],
+      "required_terms": ["粤菜"], "forbidden_terms": ["川菜"],
+      "reference_answer": "粤菜", "contrast_answer": "川菜"
+    },
+    {
+      "case_id": "memory_disabled", "domain": "memory", "memory_enabled": false,
+      "query": "我喜欢哪种水果？没有可用记忆时只输出不知道。",
+      "memory_facts": ["用户喜欢榴莲。"],
+      "required_terms": ["不知道"], "forbidden_terms": ["榴莲"],
+      "reference_answer": "不知道", "contrast_answer": "榴莲"
+    },
+    {
+      "case_id": "vision_uncertain", "domain": "vision",
+      "query": "图片里是哪位角色？若不能确认身份，只输出无法确认。",
+      "context": "合成文字观察：画面模糊，只能看到一名人物轮廓；没有可核验的人脸或服装特征。",
+      "vision": {"image_type": "character", "model_confidence": 0.15},
+      "required_terms": ["无法确认"], "forbidden_terms": ["星澜", "星岚"],
+      "reference_answer": "无法确认", "contrast_answer": "这是星澜"
+    },
+    {
+      "case_id": "vision_document", "domain": "vision",
+      "query": "根据文字观察，文档标题是什么？只输出标题。",
+      "context": "合成文字观察：文档页眉清晰写着项目周报，其余正文没有提供。",
+      "vision": {"image_type": "document", "model_confidence": 0.95},
+      "required_terms": ["项目周报"], "forbidden_terms": ["年度总结"],
+      "reference_answer": "项目周报", "contrast_answer": "年度总结"
+    },
+    {
+      "case_id": "persona_identity", "domain": "persona",
+      "query": "你在当前设定中的名字是什么？只输出名字。",
+      "required_terms": ["Test Assistant"], "forbidden_terms": ["星澜"],
+      "reference_answer": "Test Assistant", "contrast_answer": "星澜"
+    },
+    {
+      "case_id": "chat_support", "domain": "chat",
+      "query": "今天有点难过，请只回复我在听，不要替我做医疗诊断。",
+      "required_terms": ["我在听"], "forbidden_terms": ["确诊", "处方"],
+      "reference_answer": "我在听", "contrast_answer": "你已经确诊了"
+    },
+    {
+      "case_id": "chat_degraded", "domain": "chat",
+      "query": "现在知识服务不可用，你能给出有资料依据的准确答案吗？只回复无法检索。",
+      "context": "合成场景：知识服务暂时不可用，没有提供任何可引用知识。",
+      "required_terms": ["无法检索"], "forbidden_terms": ["已经检索到", "确定是"],
+      "reference_answer": "无法检索", "contrast_answer": "已经检索到，确定是星澜"
+    }
+  ]
+}

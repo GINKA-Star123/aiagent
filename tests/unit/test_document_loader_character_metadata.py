@@ -86,6 +86,22 @@ def test_text_fallback_prefers_earliest_character() -> None:
     ) == "乐正绫"
 
 
+@pytest.mark.parametrize(("canonical", "alias"), [
+    ("乐正绫", "绫妹"),
+    ("乐正龙牙", "牙哥"),
+    ("言和", "阿和"),
+])
+def test_short_character_alias_is_included_in_index_metadata(tmp_path, canonical, alias):
+    source = tmp_path / f"{canonical}.md"
+    source.write_text(f"# {canonical}\n\n角色基本资料。", encoding="utf-8")
+
+    doc = DocumentLoader().load_file(source, root_dir=tmp_path)[0]
+
+    assert doc.metadata["character"] == canonical
+    assert alias in doc.metadata["aliases"]
+    assert alias in doc.metadata["search_aliases"]
+
+
 def test_character_from_title_handles_section_suffix() -> None:
     loader = DocumentLoader()
 

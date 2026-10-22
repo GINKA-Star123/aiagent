@@ -55,7 +55,7 @@
 - 文件数：256
 - 总字节：1,687,570
 - 语料指纹：b397bb1182ec6ac18e8cfb1faaf1b20dbf9f46f1a595906f120e6133666e2c47
-- 指纹算法：按相对路径排序，对每个文件依次哈希 path + NUL + size + NUL + bytes
+- 指纹算法：按 POSIX 相对路径字符串区分大小写排序，对每个文件依次哈希 path + NUL + size + NUL + bytes。文件内容按原始字节读取，不转换换行符；不使用平台相关的 Path 排序，以保持 Windows/Linux 一致。
 
 data/knowledge 被 .gitignore 忽略。换机器或换语料后，先核对：
 
